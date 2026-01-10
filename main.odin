@@ -29,6 +29,18 @@ Renderer_API :: struct {
     begin_frame: proc(id: Renderer_ID),
     end_frame: proc(id: Renderer_ID),
     set_clear_color: proc(id: Renderer_ID, color: [4]f32),
+
+    // Pipeline
+    create_pipeline: proc(id: Renderer_ID, desc: Pipeline_Desc) -> Pipeline_ID,
+    destroy_pipeline: proc(id: Renderer_ID, pipeline: Pipeline_ID),
+    bind_pipeline: proc(id: Renderer_ID, pipeline: Pipeline_ID),
+
+    // Buffers
+    create_buffer: proc(id: Renderer_ID, desc: Buffer_Desc) -> Buffer_ID,
+    destroy_buffer: proc(id: Renderer_ID, buffer: Buffer_ID),
+
+    // Drawing
+    draw: proc(id: Renderer_ID, vertex_buffer: Buffer_ID, vertex_count: int),
 }
 
 Renderer :: struct {
@@ -65,6 +77,48 @@ init_renderer :: proc(window: Window_Provider) -> Renderer_ID {
 }
 
 Renderer_ID :: distinct uint
+Pipeline_ID :: distinct uint
+Buffer_ID :: distinct uint
+
+// Buffer type
+Buffer_Type :: enum {
+    Vertex,
+    Index,
+}
+
+// Buffer description for creation
+Buffer_Desc :: struct {
+    type: Buffer_Type,
+    data: rawptr,
+    size: int,
+}
+
+// Vertex attribute format
+Vertex_Format :: enum {
+    Float,
+    Float2,
+    Float3,
+    Float4,
+}
+
+// Single vertex attribute description
+Vertex_Attribute :: struct {
+    format: Vertex_Format,
+    offset: int,
+}
+
+// Describes vertex layout for a pipeline
+Vertex_Layout :: struct {
+    stride: int,
+    attributes: []Vertex_Attribute,
+}
+
+// Pipeline description for creation
+Pipeline_Desc :: struct {
+    vertex_shader:   string,  // Shader source code
+    fragment_shader: string,  // Shader source code
+    vertex_layout:   Vertex_Layout,
+}
 
 Renderer_State_Header :: struct {
     is_alive: bool,
@@ -112,6 +166,33 @@ end_frame :: proc(id: Renderer_ID) {
 
 set_clear_color :: proc(id: Renderer_ID, color: [4]f32) {
     RENDERER_API.set_clear_color(id, color)
+}
+
+// Pipeline abstraction
+create_pipeline :: proc(id: Renderer_ID, desc: Pipeline_Desc) -> Pipeline_ID {
+    return RENDERER_API.create_pipeline(id, desc)
+}
+
+destroy_pipeline :: proc(id: Renderer_ID, pipeline: Pipeline_ID) {
+    RENDERER_API.destroy_pipeline(id, pipeline)
+}
+
+bind_pipeline :: proc(id: Renderer_ID, pipeline: Pipeline_ID) {
+    RENDERER_API.bind_pipeline(id, pipeline)
+}
+
+// Buffer abstraction
+create_buffer :: proc(id: Renderer_ID, desc: Buffer_Desc) -> Buffer_ID {
+    return RENDERER_API.create_buffer(id, desc)
+}
+
+destroy_buffer :: proc(id: Renderer_ID, buffer: Buffer_ID) {
+    RENDERER_API.destroy_buffer(id, buffer)
+}
+
+// Drawing abstraction
+draw :: proc(id: Renderer_ID, vertex_buffer: Buffer_ID, vertex_count: int) {
+    RENDERER_API.draw(id, vertex_buffer, vertex_count)
 }
 
 

@@ -7,6 +7,8 @@ import MTL "vendor:darwin/Metal"
 import CA "vendor:darwin/QuartzCore"
 import NS "core:sys/darwin/Foundation"
 
+import "core:log"
+
 
 METAL_RENDERER_API :: Renderer_API {
     state_size = metal_state_size,
@@ -14,6 +16,26 @@ METAL_RENDERER_API :: Renderer_API {
     begin_frame = metal_begin_frame,
     end_frame = metal_end_frame,
     set_clear_color = metal_set_clear_color,
+    create_pipeline = metal_create_pipeline,
+    destroy_pipeline = metal_destroy_pipeline,
+    bind_pipeline = metal_bind_pipeline,
+    create_buffer = metal_create_buffer,
+    destroy_buffer = metal_destroy_buffer,
+    draw = metal_draw,
+}
+
+MAX_PIPELINES :: 64
+MAX_BUFFERS :: 256
+
+Metal_Pipeline :: struct {
+    is_alive: bool,
+    pipeline_state: ^MTL.RenderPipelineState,
+}
+
+Metal_Buffer :: struct {
+    is_alive: bool,
+    buffer: ^MTL.Buffer,
+    type: Buffer_Type,
 }
 
 Metal_State :: struct {
@@ -25,6 +47,12 @@ Metal_State :: struct {
     render_pass_descriptor: ^MTL.RenderPassDescriptor,
     command_buffer: ^MTL.CommandBuffer,
     render_encoder: ^MTL.RenderCommandEncoder,
+
+    // Pipeline storage
+    pipelines: [MAX_PIPELINES]Metal_Pipeline,
+
+    // Buffer storage
+    buffers: [MAX_BUFFERS]Metal_Buffer,
 }
 
 metal_state_size :: proc() -> int {
@@ -99,4 +127,162 @@ metal_end_frame :: proc(id: Renderer_ID) {
 metal_set_clear_color :: proc(id: Renderer_ID, color: [4]f32) {
     mtl_state := cast(^Metal_State)get_state_from_id(id)
     mtl_state.clear_color = color
+}
+
+// Pipeline functions
+
+@(private="file")
+metal_get_free_pipeline :: proc(mtl_state: ^Metal_State) -> Pipeline_ID {
+    for i in 0..<MAX_PIPELINES {
+        if !mtl_state.pipelines[i].is_alive {
+            return Pipeline_ID(i)
+        }
+    }
+    log.panic("All pipeline slots are in use!")
+}
+
+@(private="file")
+metal_vertex_format_to_mtl := [Vertex_Format]MTL.VertexFormat {
+    .Float  = .Float,
+    .Float2 = .Float2,
+    .Float3 = .Float3,
+    .Float4 = .Float4,
+}
+
+metal_create_pipeline :: proc(id: Renderer_ID, desc: Pipeline_Desc) -> Pipeline_ID {
+    mtl_state := cast(^Metal_State)get_state_from_id(id)
+    pipeline_id := metal_get_free_pipeline(mtl_state)
+
+    // Compile shaders
+    vertex_source := NS.String.alloc()->initWithOdinString(desc.vertex_shader)
+    fragment_source := NS.String.alloc()->initWithOdinString(desc.fragment_shader)
+    compile_options := MTL.CompileOptions_alloc()->init()
+
+    vertex_library, vertex_lib_err := mtl_state.device->newLibraryWithSource(vertex_source, compile_options)
+    assert(vertex_lib_err == nil, "Vertex library error")
+    assert(vertex_library != nil, "Failed to compile vertex shader")
+    
+    fragment_library, fragment_lib_err := mtl_state.device->newLibraryWithSource(fragment_source, compile_options)
+    assert(fragment_lib_err == nil, "Fragment library error")
+    assert(fragment_library != nil, "Failed to compile fragment shader")
+
+    vertex_function := vertex_library->newFunctionWithName(NS.AT("vertex_main"))
+    assert(vertex_function != nil, "Vertex function 'vertex_main' not found")
+    
+    fragment_function := fragment_library->newFunctionWithName(NS.AT("fragment_main"))
+    assert(fragment_function != nil, "Fragment function 'fragment_main' not found")
+
+    // Create vertex descriptor
+    vertex_descriptor := MTL.VertexDescriptor.alloc()->init()
+    
+    for attr, i in desc.vertex_layout.attributes {
+        vertex_descriptor->attributes()->object(NS.UInteger(i))->setFormat(metal_vertex_format_to_mtl[attr.format])
+        vertex_descriptor->attributes()->object(NS.UInteger(i))->setOffset(NS.UInteger(attr.offset))
+        vertex_descriptor->attributes()->object(NS.UInteger(i))->setBufferIndex(0)
+    }
+    
+    vertex_descriptor->layouts()->object(0)->setStride(NS.UInteger(desc.vertex_layout.stride))
+    vertex_descriptor->layouts()->object(0)->setStepFunction(.PerVertex)
+
+    // Create pipeline descriptor
+    pipeline_descriptor := MTL.RenderPipelineDescriptor.alloc()->init()
+    pipeline_descriptor->setVertexFunction(vertex_function)
+    pipeline_descriptor->setFragmentFunction(fragment_function)
+    pipeline_descriptor->setVertexDescriptor(vertex_descriptor)
+    pipeline_descriptor->colorAttachments()->object(0)->setPixelFormat(.BGRA8Unorm)
+
+    // Create pipeline state
+    pipeline_state, pipeline_err := mtl_state.device->newRenderPipelineState(pipeline_descriptor)
+    assert(pipeline_err == nil, "Failed to create render pipeline state")
+
+    mtl_state.pipelines[pipeline_id].is_alive = true
+    mtl_state.pipelines[pipeline_id].pipeline_state = pipeline_state
+
+    return pipeline_id
+}
+
+metal_destroy_pipeline :: proc(id: Renderer_ID, pipeline: Pipeline_ID) {
+    mtl_state := cast(^Metal_State)get_state_from_id(id)
+    
+    assert(int(pipeline) < MAX_PIPELINES && int(pipeline) >= 0, "Invalid Pipeline_ID")
+    assert(mtl_state.pipelines[pipeline].is_alive, "Pipeline already destroyed")
+    
+    // Release the pipeline state
+    mtl_state.pipelines[pipeline].pipeline_state->release()
+    mtl_state.pipelines[pipeline].is_alive = false
+    mtl_state.pipelines[pipeline].pipeline_state = nil
+}
+
+metal_bind_pipeline :: proc(id: Renderer_ID, pipeline: Pipeline_ID) {
+    mtl_state := cast(^Metal_State)get_state_from_id(id)
+    
+    assert(int(pipeline) < MAX_PIPELINES && int(pipeline) >= 0, "Invalid Pipeline_ID")
+    assert(mtl_state.pipelines[pipeline].is_alive, "Cannot bind destroyed pipeline")
+    
+    mtl_state.render_encoder->setRenderPipelineState(mtl_state.pipelines[pipeline].pipeline_state)
+}
+
+// Buffer functions
+
+@(private="file")
+metal_get_free_buffer :: proc(mtl_state: ^Metal_State) -> Buffer_ID {
+    for i in 0..<MAX_BUFFERS {
+        if !mtl_state.buffers[i].is_alive {
+            return Buffer_ID(i)
+        }
+    }
+    log.panic("All buffer slots are in use!")
+}
+
+metal_create_buffer :: proc(id: Renderer_ID, desc: Buffer_Desc) -> Buffer_ID {
+    mtl_state := cast(^Metal_State)get_state_from_id(id)
+    buffer_id := metal_get_free_buffer(mtl_state)
+
+    // Create Metal buffer with data
+    mtl_buffer := mtl_state.device->newBufferWithBytes(
+        ([^]byte)(desc.data)[:desc.size],
+        {.StorageModeManaged},
+    )
+    assert(mtl_buffer != nil, "Failed to create Metal buffer")
+
+    mtl_state.buffers[buffer_id].is_alive = true
+    mtl_state.buffers[buffer_id].buffer = mtl_buffer
+    mtl_state.buffers[buffer_id].type = desc.type
+
+    return buffer_id
+}
+
+metal_destroy_buffer :: proc(id: Renderer_ID, buffer: Buffer_ID) {
+    mtl_state := cast(^Metal_State)get_state_from_id(id)
+    
+    assert(int(buffer) < MAX_BUFFERS && int(buffer) >= 0, "Invalid Buffer_ID")
+    assert(mtl_state.buffers[buffer].is_alive, "Buffer already destroyed")
+    
+    mtl_state.buffers[buffer].buffer->release()
+    mtl_state.buffers[buffer].is_alive = false
+    mtl_state.buffers[buffer].buffer = nil
+}
+
+// Drawing functions
+
+metal_draw :: proc(id: Renderer_ID, vertex_buffer: Buffer_ID, vertex_count: int) {
+    mtl_state := cast(^Metal_State)get_state_from_id(id)
+    
+    assert(int(vertex_buffer) < MAX_BUFFERS && int(vertex_buffer) >= 0, "Invalid Buffer_ID")
+    assert(mtl_state.buffers[vertex_buffer].is_alive, "Cannot draw with destroyed buffer")
+    assert(mtl_state.buffers[vertex_buffer].type == .Vertex, "Buffer must be a vertex buffer")
+
+    // Bind vertex buffer at index 0
+    mtl_state.render_encoder->setVertexBuffer(
+        mtl_state.buffers[vertex_buffer].buffer,
+        0,  // offset
+        0,  // buffer index
+    )
+
+    // Draw primitives (triangles)
+    mtl_state.render_encoder->drawPrimitives(
+        .Triangle,
+        NS.UInteger(0),              // vertex start
+        NS.UInteger(vertex_count),   // vertex count
+    )
 }
