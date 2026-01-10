@@ -55,6 +55,9 @@ Renderer :: struct {
 
 renderer: Renderer
 
+MAX_PIPELINES :: 64
+MAX_BUFFERS :: 256
+
 main :: proc() {
     fmt.println("Hellope")
 }
@@ -80,20 +83,17 @@ Renderer_ID :: distinct uint
 Pipeline_ID :: distinct uint
 Buffer_ID :: distinct uint
 
-// Buffer type
 Buffer_Type :: enum {
     Vertex,
     Index,
 }
 
-// Buffer description for creation
 Buffer_Desc :: struct {
     type: Buffer_Type,
     data: rawptr,
     size: int,
 }
 
-// Vertex attribute format
 Vertex_Format :: enum {
     Float,
     Float2,
@@ -101,19 +101,16 @@ Vertex_Format :: enum {
     Float4,
 }
 
-// Single vertex attribute description
 Vertex_Attribute :: struct {
     format: Vertex_Format,
     offset: int,
 }
 
-// Describes vertex layout for a pipeline
 Vertex_Layout :: struct {
     stride: int,
     attributes: []Vertex_Attribute,
 }
 
-// Pipeline description for creation
 Pipeline_Desc :: struct {
     vertex_shader:   string,  // Shader source code
     fragment_shader: string,  // Shader source code
@@ -155,7 +152,7 @@ Window_Provider :: struct {
     get_native_handle: proc(window_id: rawptr) -> rawptr,
 }
 
-// Frame management abstraction
+// Frame management
 begin_frame :: proc(id: Renderer_ID) {
     RENDERER_API.begin_frame(id)
 }
@@ -168,7 +165,7 @@ set_clear_color :: proc(id: Renderer_ID, color: [4]f32) {
     RENDERER_API.set_clear_color(id, color)
 }
 
-// Pipeline abstraction
+// Pipeline
 create_pipeline :: proc(id: Renderer_ID, desc: Pipeline_Desc) -> Pipeline_ID {
     return RENDERER_API.create_pipeline(id, desc)
 }
@@ -181,7 +178,7 @@ bind_pipeline :: proc(id: Renderer_ID, pipeline: Pipeline_ID) {
     RENDERER_API.bind_pipeline(id, pipeline)
 }
 
-// Buffer abstraction
+// Buffer
 create_buffer :: proc(id: Renderer_ID, desc: Buffer_Desc) -> Buffer_ID {
     return RENDERER_API.create_buffer(id, desc)
 }
@@ -190,11 +187,17 @@ destroy_buffer :: proc(id: Renderer_ID, buffer: Buffer_ID) {
     RENDERER_API.destroy_buffer(id, buffer)
 }
 
-// Drawing abstraction
+// Drawing
 draw :: proc(id: Renderer_ID, vertex_buffer: Buffer_ID, vertex_count: int) {
     RENDERER_API.draw(id, vertex_buffer, vertex_count)
 }
 
+Vector2 :: [2]f32 
+Vector3 :: [3]f32
+Vector4 :: [4]f32
 
-
-
+Vertex :: struct {
+    position: Vector3,
+    rotation: Vector3,
+    scale   : Vector3,
+}

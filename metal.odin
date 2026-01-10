@@ -9,7 +9,6 @@ import NS "core:sys/darwin/Foundation"
 
 import "core:log"
 
-
 METAL_RENDERER_API :: Renderer_API {
     state_size = metal_state_size,
     init = metal_init,
@@ -23,9 +22,6 @@ METAL_RENDERER_API :: Renderer_API {
     destroy_buffer = metal_destroy_buffer,
     draw = metal_draw,
 }
-
-MAX_PIPELINES :: 64
-MAX_BUFFERS :: 256
 
 Metal_Pipeline :: struct {
     is_alive: bool,
@@ -53,12 +49,18 @@ Metal_State :: struct {
 
     // Buffer storage
     buffers: [MAX_BUFFERS]Metal_Buffer,
+
+    // Buffers
+    vertex_buffer: Buffer_ID,
+    index_buffer: Buffer_ID,
 }
 
 metal_state_size :: proc() -> int {
     return size_of(Metal_State)
 }
 
+size_of_vertex_buffer: uint = 100_000
+size_of_index_buffer: uint = 100_000
 metal_init :: proc(window: Window_Provider) -> Renderer_ID {
     state, id := get_free_state()
     mtl_state := cast(^Metal_State)state
@@ -84,6 +86,9 @@ metal_init :: proc(window: Window_Provider) -> Renderer_ID {
     mtl_state.command_queue = mtl_state.device->newCommandQueue()
     mtl_state.render_pass_descriptor = MTL.RenderPassDescriptor.alloc()->init()
     mtl_state.swapchain = swapchain
+
+    mtl_state.vertex_buffer = metal_create_buffer_zeros(id, size_of_vertex_buffer, {.StorageModeManaged}, .Vertex)
+    mtl_state.index_buffer  = metal_create_buffer_zeros(id, size_of_vertex_buffer, {.StorageModeManaged}, .Index)
 
     return id
 }
@@ -224,7 +229,6 @@ metal_bind_pipeline :: proc(id: Renderer_ID, pipeline: Pipeline_ID) {
 
 // Buffer functions
 
-@(private="file")
 metal_get_free_buffer :: proc(mtl_state: ^Metal_State) -> Buffer_ID {
     for i in 0..<MAX_BUFFERS {
         if !mtl_state.buffers[i].is_alive {
@@ -232,6 +236,23 @@ metal_get_free_buffer :: proc(mtl_state: ^Metal_State) -> Buffer_ID {
         }
     }
     log.panic("All buffer slots are in use!")
+}
+
+metal_create_buffer_zeros :: proc(id: Renderer_ID, length: uint, resource_ops: MTL.ResourceOptions, type: Buffer_Type) -> Buffer_ID {
+    mtl_state := cast(^Metal_State)get_state_from_id(id)
+    buffer_id := metal_get_free_buffer(mtl_state)
+
+    mtl_buffer := mtl_state.device->newBufferWithLength(
+        NS.UInteger(length),
+        resource_ops
+    )
+    assert(mtl_buffer != nil, "Failed to create Metal buffer")
+
+    mtl_state.buffers[buffer_id].is_alive = true
+    mtl_state.buffers[buffer_id].buffer = mtl_buffer
+    mtl_state.buffers[buffer_id].type = type
+
+    return buffer_id
 }
 
 metal_create_buffer :: proc(id: Renderer_ID, desc: Buffer_Desc) -> Buffer_ID {
