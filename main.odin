@@ -25,7 +25,7 @@ RENDERER_API :: DEFAULT_RENDERER_API
 Renderer_API :: struct {
     state_size: proc() -> int,
 
-    init: proc(window: Window_Provider) -> Renderer_ID,
+    init: proc(window: Window_Provider, size_vertex: uint, size_index: uint) -> Renderer_ID,
     begin_frame: proc(id: Renderer_ID),
     end_frame: proc(id: Renderer_ID),
     set_clear_color: proc(id: Renderer_ID, color: [4]f32),
@@ -36,8 +36,9 @@ Renderer_API :: struct {
     bind_pipeline: proc(id: Renderer_ID, pipeline: Pipeline_ID),
 
     // Buffers
-    create_buffer: proc(id: Renderer_ID, desc: Buffer_Desc) -> Buffer_ID,
-    push_buffer: proc(id: Renderer_ID, bid: Buffer_ID, data: rawptr, offset: uint, lenght: int),
+    create_buffer: proc(id: Renderer_ID, data: rawptr, size: int, type: Buffer_Type, access: Buffer_Access) -> Buffer_ID,
+    create_buffer_zeros: proc(id: Renderer_ID, length: int, type: Buffer_Type, access: Buffer_Access),
+    push_buffer: proc(id: Renderer_ID, bid: Buffer_ID, data: rawptr, offset: uint, lenght: int, access: Buffer_Access),
     destroy_buffer: proc(id: Renderer_ID, buffer: Buffer_ID),
 
     // Drawing
@@ -56,8 +57,8 @@ Renderer :: struct {
 
 renderer: Renderer
 
-MAX_PIPELINES :: 64
-MAX_BUFFERS :: 256
+MAX_PIPELINES :: #config(MAX_PIPELINES, 8)
+MAX_BUFFERS   :: #config(MAX_BUFFERS, 8)
 
 main :: proc() {
     fmt.println("Hellope")
@@ -76,8 +77,8 @@ init :: proc(renderers: int = 1) {
     renderer.frame_allocator = context.temp_allocator
 }
 
-init_renderer :: proc(window: Window_Provider) -> Renderer_ID {
-    return RENDERER_API.init(window)
+init_renderer :: proc(window: Window_Provider, size_vertex, size_index: uint) -> Renderer_ID {
+    return RENDERER_API.init(window, size_vertex, size_index)
 }
 
 Renderer_ID :: distinct uint
@@ -87,12 +88,6 @@ Buffer_ID :: distinct uint
 Buffer_Type :: enum {
     Vertex,
     Index,
-}
-
-Buffer_Desc :: struct {
-    type: Buffer_Type,
-    data: rawptr,
-    size: int,
 }
 
 Vertex_Format :: enum {
@@ -112,6 +107,11 @@ Vertex_Layout :: struct {
     attributes: []Vertex_Attribute,
 }
 
+Buffer_Access :: enum {
+    Static,
+    Dynamic,
+}
+
 Pipeline_Desc :: struct {
     vertex_shader:   string,  // Shader source code
     fragment_shader: string,  // Shader source code
@@ -122,6 +122,7 @@ Renderer_State_Header :: struct {
     is_alive: bool,
     window: Window_Provider,
     clear_color: [4]f32,
+
     vertex_buffer: Buffer_ID,
     index_buffer: Buffer_ID,
 }
@@ -182,12 +183,22 @@ bind_pipeline :: proc(id: Renderer_ID, pipeline: Pipeline_ID) {
 }
 
 // Buffer
-create_buffer :: proc(id: Renderer_ID, desc: Buffer_Desc) -> Buffer_ID {
-    return RENDERER_API.create_buffer(id, desc)
+create_buffer :: proc(id: Renderer_ID, data: rawptr, length: int, type: Buffer_Type, access: Buffer_Access) -> Buffer_ID {
+    assert(length > 0)
+    return RENDERER_API.create_buffer(id, data, length, type, access)
 }
 
-push_buffer :: proc(id: Renderer_ID, bid: Buffer_ID, data: rawptr, offset: uint, lenght: int) {
-    RENDERER_API.push_buffer(id, bid, data, offset, length)
+create_buffer_zeros :: proc(id: Renderer_ID, length: int, type: Buffer_Type, access: Buffer_Access) {
+    assert(length > 0)
+    RENDERER_API.create_buffer_zeros(id, length, type, access)
+}
+
+push_buffer :: proc(id: Renderer_ID, bid: Buffer_ID, data: rawptr, offset: uint, length: int, access: Buffer_Access) {
+    RENDERER_API.push_buffer(id, bid, data, offset, length, access)
+}
+
+push_buffer_slice :: proc(id: Renderer_ID, bid: Buffer_ID, data: $T/[]$E, offset: int) {
+    RENDERER_API.push_buffer(id, bid, data, offset, len(data) * size_of(E), offset)
 }
 
 destroy_buffer :: proc(id: Renderer_ID, buffer: Buffer_ID) {

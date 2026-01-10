@@ -7,7 +7,11 @@ import MTL "vendor:darwin/Metal"
 import CA "vendor:darwin/QuartzCore"
 import NS "core:sys/darwin/Foundation"
 
+import "core:mem"
 import "core:log"
+
+// Whether we're building for MacOS or iOS
+MACOS :: #config(MACOS, true)
 
 METAL_RENDERER_API :: Renderer_API {
     state_size = metal_state_size,
@@ -18,9 +22,12 @@ METAL_RENDERER_API :: Renderer_API {
     create_pipeline = metal_create_pipeline,
     destroy_pipeline = metal_destroy_pipeline,
     bind_pipeline = metal_bind_pipeline,
+    
     create_buffer = metal_create_buffer,
+    create_buffer_zeros = create_buffer_zeros,
     push_buffer = metal_push_buffer,
     destroy_buffer = metal_destroy_buffer,
+    
     draw = metal_draw,
 }
 
@@ -56,9 +63,7 @@ metal_state_size :: proc() -> int {
     return size_of(Metal_State)
 }
 
-size_of_vertex_buffer: uint = 100_000
-size_of_index_buffer: uint = 100_000
-metal_init :: proc(window: Window_Provider) -> Renderer_ID {
+metal_init :: proc(window: Window_Provider, size_vertex, size_index: uint) -> Renderer_ID {
     state, id := get_free_state()
     mtl_state := cast(^Metal_State)state
 
@@ -84,8 +89,8 @@ metal_init :: proc(window: Window_Provider) -> Renderer_ID {
     mtl_state.render_pass_descriptor = MTL.RenderPassDescriptor.alloc()->init()
     mtl_state.swapchain = swapchain
 
-    mtl_state.vertex_buffer = metal_create_buffer_zeros(id, size_of_vertex_buffer, {.StorageModeManaged}, .Vertex)
-    mtl_state.index_buffer  = metal_create_buffer_zeros(id, size_of_vertex_buffer, {.StorageModeManaged}, .Index)
+    mtl_state.vertex_buffer = metal_create_buffer_zeros(id, size_vertex, .Vertex, .Dynamic)
+    mtl_state.index_buffer  = metal_create_buffer_zeros(id, size_index, .Index, .Dynamic)
 
     return id
 }
@@ -235,13 +240,21 @@ metal_get_free_buffer :: proc(mtl_state: ^Metal_State) -> Buffer_ID {
     log.panic("All buffer slots are in use!")
 }
 
-metal_create_buffer_zeros :: proc(id: Renderer_ID, length: uint, resource_ops: MTL.ResourceOptions, type: Buffer_Type) -> Buffer_ID {
+metal_create_buffer_zeros :: proc(id: Renderer_ID, length: uint, type: Buffer_Type, access: Buffer_Access) -> Buffer_ID {
     mtl_state := cast(^Metal_State)get_state_from_id(id)
     buffer_id := metal_get_free_buffer(mtl_state)
 
+    storage_mode: MTL.ResourceOptions
+    switch access {
+        case .Static:
+            storage_mode = {.StorageModePrivate}
+        case .Dynamic:
+            storage_mode = {.StorageModeManaged}
+    }
+
     mtl_buffer := mtl_state.device->newBufferWithLength(
         NS.UInteger(length),
-        resource_ops
+        storage_mode
     )
     assert(mtl_buffer != nil, "Failed to create Metal buffer")
 
@@ -252,40 +265,48 @@ metal_create_buffer_zeros :: proc(id: Renderer_ID, length: uint, resource_ops: M
     return buffer_id
 }
 
-metal_create_buffer :: proc(id: Renderer_ID, desc: Buffer_Desc) -> Buffer_ID {
+metal_create_buffer :: proc(id: Renderer_ID, data: rawptr, length: int, type: Buffer_Type, access: Buffer_Access) -> Buffer_ID {
     mtl_state := cast(^Metal_State)get_state_from_id(id)
     buffer_id := metal_get_free_buffer(mtl_state)
 
-    // Create Metal buffer with data
+    storage_mode: MTL.ResourceOptions
+    switch access {
+        case .Static:
+            storage_mode = {.StorageModePrivate}
+        case .Dynamic:
+            storage_mode = {.StorageModeManaged}
+    }
+
     mtl_buffer := mtl_state.device->newBufferWithBytes(
-        ([^]byte)(desc.data)[:desc.size],
-        {.StorageModeManaged},
+        mem.byte_slice(data, length),
+        storage_mode,
     )
     assert(mtl_buffer != nil, "Failed to create Metal buffer")
 
     mtl_state.buffers[buffer_id].is_alive = true
     mtl_state.buffers[buffer_id].buffer = mtl_buffer
-    mtl_state.buffers[buffer_id].type = desc.type
+    mtl_state.buffers[buffer_id].type = type
 
     return buffer_id
 }
 
-import "core:mem"
-MACOS := #config(MACOS, true)
-metal_push_buffer :: proc(id: Renderer_ID, bid: Buffer_ID, data: rawptr, offset: uint, length: int) {
+metal_push_buffer :: proc(id: Renderer_ID, bid: Buffer_ID, data: rawptr, offset: uint, length: int, access: Buffer_Access) {
     mtl_state := cast(^Metal_State)get_state_from_id(id)
     buffer := mtl_state.buffers[bid].buffer
 
     contents := buffer->contents()
+
+    assert(int(offset) + length <= len(contents), "Buffer overflow")
+
     dest := mem.ptr_offset(raw_data(contents), offset)
     mem.copy(dest, data, length)
 
-    // On MacOS, Shared buffers need manual sync. Not in iOS
+    //On MacOS, Shared buffers need manual sync. Not in iOS
     when MACOS {
-        if buffer.access == .Dynamic {
+        if access == .Dynamic {
             buffer->didModifyRange(NS.Range{
                 location = NS.UInteger(offset),
-                length   = NS.UInteger(size),
+                length   = NS.UInteger(length),
             })
         }
     }
@@ -311,14 +332,12 @@ metal_draw :: proc(id: Renderer_ID, vertex_buffer: Buffer_ID, vertex_count: int)
     assert(mtl_state.buffers[vertex_buffer].is_alive, "Cannot draw with destroyed buffer")
     assert(mtl_state.buffers[vertex_buffer].type == .Vertex, "Buffer must be a vertex buffer")
 
-    // Bind vertex buffer at index 0
     mtl_state.render_encoder->setVertexBuffer(
         mtl_state.buffers[vertex_buffer].buffer,
         0,  // offset
-        0,  // buffer index
+        0,  // index
     )
 
-    // Draw primitives (triangles)
     mtl_state.render_encoder->drawPrimitives(
         .Triangle,
         NS.UInteger(0),              // vertex start
