@@ -122,6 +122,8 @@ Renderer_State_Header :: struct {
     is_alive: bool,
     window: Window_Provider,
     clear_color: [4]f32,
+    vertex_buffer: Buffer_ID,
+    index_buffer: Buffer_ID,
 }
 
 get_free_state :: proc() -> (state: rawptr, id: Renderer_ID) {

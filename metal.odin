@@ -50,10 +50,6 @@ Metal_State :: struct {
 
     // Buffer storage
     buffers: [MAX_BUFFERS]Metal_Buffer,
-
-    // Buffers
-    vertex_buffer: Buffer_ID,
-    index_buffer: Buffer_ID,
 }
 
 metal_state_size :: proc() -> int {
