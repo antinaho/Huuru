@@ -28,6 +28,7 @@ Renderer_API :: struct {
     init: proc(window: Window_Provider) -> Renderer_ID,
     begin_frame: proc(id: Renderer_ID),
     end_frame: proc(id: Renderer_ID),
+    set_clear_color: proc(id: Renderer_ID, color: [4]f32),
 }
 
 Renderer :: struct {
@@ -68,6 +69,7 @@ Renderer_ID :: distinct uint
 Renderer_State_Header :: struct {
     is_alive: bool,
     window: Window_Provider,
+    clear_color: [4]f32,
 }
 
 get_free_state :: proc() -> (state: rawptr, id: Renderer_ID) {
@@ -99,59 +101,19 @@ Window_Provider :: struct {
     get_native_handle: proc(window_id: rawptr) -> rawptr,
 }
 
-///////////////////////////////////////
-/////// METAL IMPLEMENTATION //////////
-
-import MTL "vendor:darwin/Metal"
-import CA "vendor:darwin/QuartzCore"
-import NS "core:sys/darwin/Foundation"
-
-
-METAL_RENDERER_API :: Renderer_API {
-    state_size = metal_state_size,
-    init = metal_init,
+// Frame management abstraction
+begin_frame :: proc(id: Renderer_ID) {
+    RENDERER_API.begin_frame(id)
 }
 
-Metal_State :: struct {
-    using _ : Renderer_State_Header,
-    device: ^MTL.Device,
-    swapchain: ^CA.MetalLayer,
-    command_queue: ^MTL.CommandQueue,
-    drawable: ^CA.MetalDrawable,
-    render_pass_descriptor: ^MTL.RenderPassDescriptor,
+end_frame :: proc(id: Renderer_ID) {
+    RENDERER_API.end_frame(id)
 }
 
-metal_state_size :: proc() -> int {
-    return size_of(Metal_State)
+set_clear_color :: proc(id: Renderer_ID, color: [4]f32) {
+    RENDERER_API.set_clear_color(id, color)
 }
 
-metal_init :: proc(window: Window_Provider) -> Renderer_ID {
-    state, id := get_free_state()
-    mtl_state := cast(^Metal_State)state
-
-    mtl_state.window = window
-
-    mtl_state.device = MTL.CreateSystemDefaultDevice()
-    assert(mtl_state.device != nil, "Metal not supported.")
-
-    size := window.get_size(window.window_id)
-
-    swapchain := CA.MetalLayer.layer()
-    swapchain->setDevice(mtl_state.device)
-    swapchain->setPixelFormat(.BGRA8Unorm)
-    swapchain->setDrawableSize({NS.Float(size.x), NS.Float(size.y)})
-
-    mtl_window := cast(^NS.Window)window.get_native_handle(window.window_id)
-    mtl_window->contentView()->setLayer(swapchain)
-    mtl_window->contentView()->setWantsLayer(true)
-
-    mtl_state.command_queue = mtl_state.device->newCommandQueue()
-    mtl_state.drawable = swapchain->nextDrawable()
-    mtl_state.render_pass_descriptor = MTL.RenderPassDescriptor.alloc()->init()
-    mtl_state.swapchain = swapchain
-
-    return id
-}
 
 
 
