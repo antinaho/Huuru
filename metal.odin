@@ -28,7 +28,7 @@ METAL_RENDERER_API :: Renderer_API {
     push_buffer = metal_push_buffer,
     destroy_buffer = metal_destroy_buffer,
     
-    draw = metal_draw,
+    draw_instanced = metal_draw_instanced,
 }
 
 Metal_Pipeline :: struct {
@@ -106,12 +106,17 @@ metal_begin_frame :: proc(id: Renderer_ID) {
     color_attachment->setTexture(mtl_state.drawable->texture())
     color_attachment->setLoadAction(.Clear)
     color_attachment->setStoreAction(.Store)
-    color_attachment->setClearColor(MTL.ClearColor{
-        f64(mtl_state.clear_color.r),
-        f64(mtl_state.clear_color.g),
-        f64(mtl_state.clear_color.b),
-        f64(mtl_state.clear_color.a),
-    })
+
+    color_to_mtl_color :: proc(color: Color) -> MTL.ClearColor {
+        return {
+            f64(color.r / 255.0),
+            f64(color.g / 255.0),
+            f64(color.b / 255.0),
+            f64(color.a / 255.0),
+        }
+    }
+
+    color_attachment->setClearColor(color_to_mtl_color(mtl_state.clear_color))
 
     // Create command buffer and render encoder
     mtl_state.command_buffer = mtl_state.command_queue->commandBuffer()
@@ -131,7 +136,7 @@ metal_end_frame :: proc(id: Renderer_ID) {
     mtl_state.command_buffer->commit()
 }
 
-metal_set_clear_color :: proc(id: Renderer_ID, color: [4]f32) {
+metal_set_clear_color :: proc(id: Renderer_ID, color: Color) {
     mtl_state := cast(^Metal_State)get_state_from_id(id)
     mtl_state.clear_color = color
 }
@@ -325,22 +330,30 @@ metal_destroy_buffer :: proc(id: Renderer_ID, buffer: Buffer_ID) {
 
 // Drawing functions
 
-metal_draw :: proc(id: Renderer_ID, vertex_buffer: Buffer_ID, vertex_count: int) {
+index_type_to_MTL_type := [Index_Type]MTL.IndexType {
+    .UInt32 = .UInt32,
+    .UInt16 = .UInt16,
+}
+
+primitive_type_to_MTL_primitive := [Primitive_Type]MTL.PrimitiveType {
+    .Triangle = .Triangle,
+}
+
+metal_draw_instanced :: proc(id: Renderer_ID, bid: Buffer_ID, index_count, index_buffer_offset, instance_count: uint, index_type: Index_Type, primitive: Primitive_Type) {
     mtl_state := cast(^Metal_State)get_state_from_id(id)
+
+    assert(int(bid) < MAX_BUFFERS && int(bid) >= 0, "Invalid Buffer_ID")
+    assert(mtl_state.buffers[bid].is_alive, "Cannot draw with destroyed buffer")
+    assert(mtl_state.buffers[bid].type == .Vertex, "Buffer must be a vertex buffer")
+
+    buffer := mtl_state.buffers[bid].buffer
     
-    assert(int(vertex_buffer) < MAX_BUFFERS && int(vertex_buffer) >= 0, "Invalid Buffer_ID")
-    assert(mtl_state.buffers[vertex_buffer].is_alive, "Cannot draw with destroyed buffer")
-    assert(mtl_state.buffers[vertex_buffer].type == .Vertex, "Buffer must be a vertex buffer")
-
-    mtl_state.render_encoder->setVertexBuffer(
-        mtl_state.buffers[vertex_buffer].buffer,
-        0,  // offset
-        0,  // index
-    )
-
-    mtl_state.render_encoder->drawPrimitives(
-        .Triangle,
-        NS.UInteger(0),              // vertex start
-        NS.UInteger(vertex_count),   // vertex count
+    mtl_state.render_encoder->drawIndexedPrimitivesWithInstanceCount(
+        primitive_type_to_MTL_primitive[primitive],
+        NS.UInteger(index_count),
+        index_type_to_MTL_type[index_type],
+        buffer,
+        NS.UInteger(index_buffer_offset),
+        NS.UInteger(instance_count)
     )
 }

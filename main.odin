@@ -28,7 +28,7 @@ Renderer_API :: struct {
     init: proc(window: Window_Provider, size_vertex: uint, size_index: uint) -> Renderer_ID,
     begin_frame: proc(id: Renderer_ID),
     end_frame: proc(id: Renderer_ID),
-    set_clear_color: proc(id: Renderer_ID, color: [4]f32),
+    set_clear_color: proc(id: Renderer_ID, color: Color),
 
     // Pipeline
     create_pipeline: proc(id: Renderer_ID, desc: Pipeline_Desc) -> Pipeline_ID,
@@ -42,7 +42,7 @@ Renderer_API :: struct {
     destroy_buffer: proc(id: Renderer_ID, buffer: Buffer_ID),
 
     // Drawing
-    draw: proc(id: Renderer_ID, vertex_buffer: Buffer_ID, vertex_count: int),
+    draw_instanced: proc(id: Renderer_ID, vertex_buffer: Buffer_ID, index_count, offset, instance_count: uint, index_type: Index_Type, primitive: Primitive_Type),
 }
 
 Renderer :: struct {
@@ -121,7 +121,7 @@ Pipeline_Desc :: struct {
 Renderer_State_Header :: struct {
     is_alive: bool,
     window: Window_Provider,
-    clear_color: [4]f32,
+    clear_color: Color,
 
     vertex_buffer: Buffer_ID,
     index_buffer: Buffer_ID,
@@ -165,10 +165,6 @@ end_frame :: proc(id: Renderer_ID) {
     RENDERER_API.end_frame(id)
 }
 
-set_clear_color :: proc(id: Renderer_ID, color: [4]f32) {
-    RENDERER_API.set_clear_color(id, color)
-}
-
 // Pipeline
 create_pipeline :: proc(id: Renderer_ID, desc: Pipeline_Desc) -> Pipeline_ID {
     return RENDERER_API.create_pipeline(id, desc)
@@ -205,17 +201,25 @@ destroy_buffer :: proc(id: Renderer_ID, buffer: Buffer_ID) {
     RENDERER_API.destroy_buffer(id, buffer)
 }
 
+// Shader
+
+
 // Drawing
-draw :: proc(id: Renderer_ID, vertex_buffer: Buffer_ID, vertex_count: int) {
-    RENDERER_API.draw(id, vertex_buffer, vertex_count)
+Index_Type :: enum {
+    UInt16,
+    UInt32,
 }
 
-Vector2 :: [2]f32 
-Vector3 :: [3]f32
-Vector4 :: [4]f32
-
-Vertex :: struct {
-    position: Vector3,
-    rotation: Vector3,
-    scale   : Vector3,
+Primitive_Type :: enum {
+    Triangle,
 }
+
+set_clear_color :: proc(id: Renderer_ID, color: Color) {
+    RENDERER_API.set_clear_color(id, color)
+}
+
+draw_instanced :: proc(id: Renderer_ID, vertex_buffer: Buffer_ID, index_count, index_buffer_offset, instance_count: uint, index_type: Index_Type, primitive: Primitive_Type) {
+    RENDERER_API.draw_instanced(id, vertex_buffer, index_count, index_buffer_offset, instance_count, index_type, primitive)
+}
+
+Color :: [4]u8
