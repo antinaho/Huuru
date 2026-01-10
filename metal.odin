@@ -19,6 +19,7 @@ METAL_RENDERER_API :: Renderer_API {
     destroy_pipeline = metal_destroy_pipeline,
     bind_pipeline = metal_bind_pipeline,
     create_buffer = metal_create_buffer,
+    push_buffer = metal_push_buffer,
     destroy_buffer = metal_destroy_buffer,
     draw = metal_draw,
 }
@@ -271,6 +272,27 @@ metal_create_buffer :: proc(id: Renderer_ID, desc: Buffer_Desc) -> Buffer_ID {
     mtl_state.buffers[buffer_id].type = desc.type
 
     return buffer_id
+}
+
+import "core:mem"
+MACOS := #config(MACOS, true)
+metal_push_buffer :: proc(id: Renderer_ID, bid: Buffer_ID, data: rawptr, offset: uint, length: int) {
+    mtl_state := cast(^Metal_State)get_state_from_id(id)
+    buffer := mtl_state.buffers[bid].buffer
+
+    contents := buffer->contents()
+    dest := mem.ptr_offset(raw_data(contents), offset)
+    mem.copy(dest, data, length)
+
+    // On MacOS, Shared buffers need manual sync. Not in iOS
+    when MACOS {
+        if buffer.access == .Dynamic {
+            buffer->didModifyRange(NS.Range{
+                location = NS.UInteger(offset),
+                length   = NS.UInteger(size),
+            })
+        }
+    }
 }
 
 metal_destroy_buffer :: proc(id: Renderer_ID, buffer: Buffer_ID) {

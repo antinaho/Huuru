@@ -37,6 +37,7 @@ Renderer_API :: struct {
 
     // Buffers
     create_buffer: proc(id: Renderer_ID, desc: Buffer_Desc) -> Buffer_ID,
+    push_buffer: proc(id: Renderer_ID, bid: Buffer_ID, data: rawptr, offset: uint, lenght: int),
     destroy_buffer: proc(id: Renderer_ID, buffer: Buffer_ID),
 
     // Drawing
@@ -181,6 +182,10 @@ bind_pipeline :: proc(id: Renderer_ID, pipeline: Pipeline_ID) {
 // Buffer
 create_buffer :: proc(id: Renderer_ID, desc: Buffer_Desc) -> Buffer_ID {
     return RENDERER_API.create_buffer(id, desc)
+}
+
+push_buffer :: proc(id: Renderer_ID, bid: Buffer_ID, data: rawptr, offset: uint, lenght: int) {
+    RENDERER_API.push_buffer(id, bid, data, offset, length)
 }
 
 destroy_buffer :: proc(id: Renderer_ID, buffer: Buffer_ID) {
