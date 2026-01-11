@@ -61,7 +61,20 @@ MAX_PIPELINES :: #config(MAX_PIPELINES, 8)
 MAX_BUFFERS   :: #config(MAX_BUFFERS, 8)
 
 main :: proc() {
-    fmt.println("Hellope")
+
+    // Shader assets
+    max_amount_of_active_shaders := 16
+    backing_buffer := make([]byte, max_amount_of_active_shaders * size_of(Shader))
+    shader_pool: Pool_Arena
+    pool_init(&shader_pool, backing_buffer, size_of(Shader))
+
+    // Loading
+    v, f, e := load_shader("test.metal", "#VERTEX", "#FRAGMENT")
+    assert(e == nil)
+    shader := Shader {
+        vertex_source = v,
+        fragment_source = f,
+    }
 }
 
 init :: proc(renderers: int = 1) {
@@ -99,12 +112,18 @@ Vertex_Format :: enum {
 
 Vertex_Attribute :: struct {
     format: Vertex_Format,
-    offset: int,
+    offset: uintptr,
+    binding: int, 
 }
 
 Vertex_Layout :: struct {
     stride: int,
-    attributes: []Vertex_Attribute,
+    step_rate: Vertex_Step_Rate,
+}
+
+Vertex_Step_Rate :: enum {
+    PerVertex,
+    PerInstance,
 }
 
 Buffer_Access :: enum {
@@ -113,9 +132,9 @@ Buffer_Access :: enum {
 }
 
 Pipeline_Desc :: struct {
-    vertex_shader:   string,  // Shader source code
-    fragment_shader: string,  // Shader source code
-    vertex_layout:   Vertex_Layout,
+    using _ : Shader,
+    layouts: []Vertex_Layout,
+    attributes: []Vertex_Attribute,
 }
 
 Renderer_State_Header :: struct {
@@ -223,3 +242,142 @@ draw_instanced :: proc(id: Renderer_ID, vertex_buffer: Buffer_ID, index_count, i
 }
 
 Color :: [4]u8
+
+// Shader
+
+import "core:bufio"
+import "core:os"
+import "core:io"
+import "core:strings"
+
+Free_Node :: struct {
+    next: ^Free_Node
+}
+
+Pool_Arena :: struct {
+    data: []byte,
+    chunk_size: int,
+
+    head: ^Free_Node,
+}
+
+pool_init :: proc(p: ^Pool_Arena, data: []byte, chunk_size: int) {
+	assert(chunk_size >= size_of(Free_Node), "Chunk size is too small");
+	assert(len(data) >= chunk_size, "Backing buffer length is smaller than the chunk size");
+
+    p.data = data
+    p.chunk_size = chunk_size
+
+    pool_free_all(p)
+}
+
+pool_free_all :: proc(p: ^Pool_Arena) {
+    chunk_count := len(p.data) / p.chunk_size
+    
+    for i in 0..<chunk_count {
+        ptr := &p.data[i * p.chunk_size]
+        node := cast(^Free_Node)ptr
+        node.next = p.head
+        p.head = node
+    }
+}
+
+import "core:mem"
+pool_alloc :: proc(p: ^Pool_Arena) -> rawptr {
+    node := p.head
+
+    if node == nil {
+        assert(false, "Pool has no free memory left")
+    }
+
+    p.head = p.head.next
+
+    return mem.set(node, 0, p.chunk_size)
+}
+
+pool_free :: proc(p: ^Pool_Arena, ptr: rawptr) {
+    node: ^Free_Node
+
+    start := uintptr(p.data[0])
+    end := uintptr(p.data[len(p.data)])
+
+    if ptr == nil {
+        assert(false, "Trying to free a nil pointer")
+    }
+
+    if !(start <= uintptr(ptr) && uintptr(ptr) < end) {
+        assert(false, "Memory is out of bounds for the buffer")
+    }
+
+    node = cast(^Free_Node)ptr
+    node.next = p.head
+    p.head = node
+}
+
+Shader :: struct {
+    vertex_source: string,
+    vertex_entrypoint: string,
+    fragment_source: string,
+    fragment_entrypoint: string,
+}
+
+ShaderLanguage :: enum {
+    SPIRV,      // Vulkan
+    MSL,        // Metal Shading Language
+    HLSL,       // Direct3D
+}
+
+file_section :: string
+
+load_shader :: proc(filepath, vertex_identifier, fragment_identifier: string) -> (vertex, fragment: string, err: os.Error) {
+    
+    source_type: ShaderLanguage
+    if strings.has_suffix(filepath, ".metal") {
+        source_type = .MSL
+    } else if strings.has_suffix(filepath, ".hlsl") {
+        source_type = .HLSL
+    } else if strings.has_suffix(filepath, ".spv") {
+        source_type = .SPIRV
+    }
+
+    reader: bufio.Reader
+    file_handle := open_file_stream(&reader, filepath) or_return
+    defer close_file_stream(file_handle, &reader)
+
+    vertex = read_section(&reader, vertex_identifier, '}') or_return
+    fragment = read_section(&reader, fragment_identifier, '}') or_return
+    
+    return
+}
+
+open_file_stream :: proc(reader: ^bufio.Reader, filepath: string) -> (handle: os.Handle, err: os.Error) {
+    handle = os.open(filepath) or_return
+    bufio.reader_init(reader, os.stream_from_handle(handle))
+    
+    return
+}
+
+close_file_stream :: proc(handle: os.Handle, reader: ^bufio.Reader) {
+    os.close(handle)
+    bufio.reader_destroy(reader)
+}
+
+read_section :: proc(reader: ^bufio.Reader, start: string, end: byte) -> (section: file_section, err: os.Error) {
+    for {
+        line, read_err := bufio.reader_read_string(reader, '\n', context.temp_allocator)
+        if read_err != nil {
+            if read_err == os.ERROR_EOF {
+                break
+            }
+            err = read_err
+            return
+        }
+
+        if strings.has_prefix(line, start) {
+            section = bufio.reader_read_string(reader, end) or_return
+            return
+        }
+    }
+
+    return
+}

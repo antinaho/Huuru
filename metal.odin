@@ -160,47 +160,53 @@ metal_vertex_format_to_mtl := [Vertex_Format]MTL.VertexFormat {
     .Float3 = .Float3,
     .Float4 = .Float4,
 }
-
+import "core:strings"
 metal_create_pipeline :: proc(id: Renderer_ID, desc: Pipeline_Desc) -> Pipeline_ID {
     mtl_state := cast(^Metal_State)get_state_from_id(id)
     pipeline_id := metal_get_free_pipeline(mtl_state)
 
     // Compile shaders
-    vertex_source := NS.String.alloc()->initWithOdinString(desc.vertex_shader)
-    fragment_source := NS.String.alloc()->initWithOdinString(desc.fragment_shader)
+    vertex_source := NS.String.alloc()->initWithOdinString(desc.vertex_source)
+    fragment_source := NS.String.alloc()->initWithOdinString(desc.fragment_source)
     compile_options := MTL.CompileOptions_alloc()->init()
 
     vertex_library, vertex_lib_err := mtl_state.device->newLibraryWithSource(vertex_source, compile_options)
     assert(vertex_lib_err == nil, "Vertex library error")
     assert(vertex_library != nil, "Failed to compile vertex shader")
-    
+
     fragment_library, fragment_lib_err := mtl_state.device->newLibraryWithSource(fragment_source, compile_options)
     assert(fragment_lib_err == nil, "Fragment library error")
     assert(fragment_library != nil, "Failed to compile fragment shader")
 
-    vertex_function := vertex_library->newFunctionWithName(NS.AT("vertex_main"))
+    function_name_vert := NS.String.alloc()->initWithOdinString(desc.vertex_entrypoint)
+    vertex_function := vertex_library->newFunctionWithName(function_name_vert)
     assert(vertex_function != nil, "Vertex function 'vertex_main' not found")
     
-    fragment_function := fragment_library->newFunctionWithName(NS.AT("fragment_main"))
+    function_name_frag := NS.String.alloc()->initWithOdinString(desc.fragment_entrypoint)
+    fragment_function := fragment_library->newFunctionWithName(function_name_frag)
     assert(fragment_function != nil, "Fragment function 'fragment_main' not found")
 
     // Create vertex descriptor
     vertex_descriptor := MTL.VertexDescriptor.alloc()->init()
     
-    for attr, i in desc.vertex_layout.attributes {
-        vertex_descriptor->attributes()->object(NS.UInteger(i))->setFormat(metal_vertex_format_to_mtl[attr.format])
-        vertex_descriptor->attributes()->object(NS.UInteger(i))->setOffset(NS.UInteger(attr.offset))
-        vertex_descriptor->attributes()->object(NS.UInteger(i))->setBufferIndex(0)
+    for attr, i in desc.attributes {
+        mtl_attr := vertex_descriptor->attributes()->object(NS.UInteger(i))
+        mtl_attr->setFormat(metal_vertex_format_to_mtl[attr.format])
+        mtl_attr->setOffset(NS.UInteger(attr.offset))
+        mtl_attr->setBufferIndex(NS.UInteger(attr.binding))
     }
-    
-    vertex_descriptor->layouts()->object(0)->setStride(NS.UInteger(desc.vertex_layout.stride))
-    vertex_descriptor->layouts()->object(0)->setStepFunction(.PerVertex)
+
+    for layout, i in desc.layouts {
+        mtl_layout := vertex_descriptor->layouts()->object(NS.UInteger(i))
+        mtl_layout->setStride(NS.UInteger(layout.stride))
+        mtl_layout->setStepFunction(step_rate_to_mtl_step_rate[layout.step_rate])
+    }
 
     // Create pipeline descriptor
     pipeline_descriptor := MTL.RenderPipelineDescriptor.alloc()->init()
+    pipeline_descriptor->setVertexDescriptor(vertex_descriptor)
     pipeline_descriptor->setVertexFunction(vertex_function)
     pipeline_descriptor->setFragmentFunction(fragment_function)
-    pipeline_descriptor->setVertexDescriptor(vertex_descriptor)
     pipeline_descriptor->colorAttachments()->object(0)->setPixelFormat(.BGRA8Unorm)
 
     // Create pipeline state
@@ -211,6 +217,11 @@ metal_create_pipeline :: proc(id: Renderer_ID, desc: Pipeline_Desc) -> Pipeline_
     mtl_state.pipelines[pipeline_id].pipeline_state = pipeline_state
 
     return pipeline_id
+}
+
+step_rate_to_mtl_step_rate := [Vertex_Step_Rate]MTL.VertexStepFunction {
+    .PerVertex = .PerVertex,
+    .PerInstance = .PerInstance,
 }
 
 metal_destroy_pipeline :: proc(id: Renderer_ID, pipeline: Pipeline_ID) {
