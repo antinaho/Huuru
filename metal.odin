@@ -95,9 +95,9 @@ metal_init :: proc(window: Window_Provider, size_vertex, size_index: uint) -> Re
     mtl_state.vertex_buffer = metal_create_buffer_zeros(id, size_vertex, .Vertex, .Dynamic)
     mtl_state.index_buffer  = metal_create_buffer_zeros(id, size_index, .Index, .Dynamic)
 
-    url := NS.URL_alloc()->initFileURLWithPath(NS.AT("shaders.metallib"))
+    url := NS.URL.alloc()->initFileURLWithPath(NS.AT("shaders.metallib"))
     library, err := mtl_state.device->newLibraryWithURL(url)
-    assert(err != nil, "Error loading library")
+    assert(err == nil, "Error loading metallib")
     mtl_state.shader_library = library
 
     return id

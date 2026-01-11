@@ -8,14 +8,9 @@ OUTPUT_DIR=""
 
 usage() {
     echo "Usage: $0 -s <source_dir> -o <output_dir>"
-    echo ""
-    echo "Options:"
-    echo "  -s    Directory containing .metal files"
-    echo "  -o    Output directory for .air and .metallib"
     exit 1
 }
 
-# ---- Parse flags ----
 while getopts "s:o:" opt; do
     case $opt in
         s) SOURCE_DIR="$OPTARG" ;;
@@ -24,7 +19,6 @@ while getopts "s:o:" opt; do
     esac
 done
 
-# ---- Validate ----
 if [ -z "$SOURCE_DIR" ] || [ -z "$OUTPUT_DIR" ]; then
     usage
 fi
@@ -34,49 +28,49 @@ if [ ! -d "$SOURCE_DIR" ]; then
     exit 1
 fi
 
-mkdir -p "$OUTPUT_DIR" || {
-    echo "ERROR: Could not create output directory '$OUTPUT_DIR'."
-    exit 1
-}
+mkdir -p "$OUTPUT_DIR" || exit 1
 
-# ---- Check for metal tool ----
 if ! xcrun --sdk $SDK --find metal >/dev/null 2>&1; then
     echo "ERROR: Metal compiler not found."
-    echo "Try:"
-    echo "  sudo xcode-select --switch /Applications/Xcode.app/Contents/Developer"
-    echo "or:"
-    echo "  xcodebuild -downloadComponent MetalToolchain"
     exit 1
 fi
 
-# ---- Collect sources ----
-METAL_FILES=("$SOURCE_DIR"/*.metal)
-
-if [ ! -e "${METAL_FILES[0]}" ]; then
-    echo "ERROR: No .metal files found in '$SOURCE_DIR'."
-    exit 1
-fi
-
-AIR_FILE="$OUTPUT_DIR/shaders.air"
+AIR_DIR="$OUTPUT_DIR/air"
 METALLIB_FILE="$OUTPUT_DIR/shaders.metallib"
+
+mkdir -p "$AIR_DIR"
 
 echo "=== Metal shader build ==="
 echo "Source: $SOURCE_DIR"
-echo "Output: $OUTPUT_DIR"
+echo "AIR out: $AIR_DIR"
+echo "Metallib: $METALLIB_FILE"
 
-# ---- Compile ----
-echo "Compiling shaders..."
-if ! xcrun --sdk $SDK metal -c "${METAL_FILES[@]}" -o "$AIR_FILE"; then
-    echo "ERROR: Metal compilation failed."
-    exit 1
-fi
+AIR_FILES=()
 
-# ---- Link ----
+# ---- Compile each .metal file individually ----
+for METAL_FILE in "$SOURCE_DIR"/*.metal; do
+    [ -e "$METAL_FILE" ] || {
+        echo "ERROR: No .metal files found in '$SOURCE_DIR'"
+        exit 1
+    }
+
+    BASENAME=$(basename "$METAL_FILE" .metal)
+    AIR_FILE="$AIR_DIR/$BASENAME.air"
+
+    echo "Compiling $(basename "$METAL_FILE")..."
+    if ! xcrun --sdk $SDK metal -c "$METAL_FILE" -o "$AIR_FILE"; then
+        echo "ERROR: Failed compiling $METAL_FILE"
+        exit 1
+    fi
+
+    AIR_FILES+=("$AIR_FILE")
+done
+
+# ---- Link all .air files ----
 echo "Linking metallib..."
-if ! xcrun --sdk $SDK metallib "$AIR_FILE" -o "$METALLIB_FILE"; then
+if ! xcrun --sdk $SDK metallib "${AIR_FILES[@]}" -o "$METALLIB_FILE"; then
     echo "ERROR: metallib linking failed."
     exit 1
 fi
 
-echo "✔ Shaders compiled successfully:"
-echo "  $METALLIB_FILE"
+echo "Shaders compiled successfully"
