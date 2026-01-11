@@ -2,50 +2,72 @@
 
 set -o pipefail
 
-# ---- Usage check ----
-if [ $# -ne 1 ]; then
-    echo "Usage: $0 <shader_directory>"
-    exit 1
-fi
-
-SHADER_DIR="$1"
-
-if [ ! -d "$SHADER_DIR" ]; then
-    echo "ERROR: '$SHADER_DIR' is not a directory."
-    exit 1
-fi
-
 SDK="macosx"
+SOURCE_DIR=""
+OUTPUT_DIR=""
 
-AIR_FILE="$SHADER_DIR/shaders.air"
-METALLIB_FILE="$SHADER_DIR/shaders.metallib"
+usage() {
+    echo "Usage: $0 -s <source_dir> -o <output_dir>"
+    echo ""
+    echo "Options:"
+    echo "  -s    Directory containing .metal files"
+    echo "  -o    Output directory for .air and .metallib"
+    exit 1
+}
 
-echo "=== Metal shader build ==="
-echo "Directory: $SHADER_DIR"
+# ---- Parse flags ----
+while getopts "s:o:" opt; do
+    case $opt in
+        s) SOURCE_DIR="$OPTARG" ;;
+        o) OUTPUT_DIR="$OPTARG" ;;
+        *) usage ;;
+    esac
+done
+
+# ---- Validate ----
+if [ -z "$SOURCE_DIR" ] || [ -z "$OUTPUT_DIR" ]; then
+    usage
+fi
+
+if [ ! -d "$SOURCE_DIR" ]; then
+    echo "ERROR: Source directory '$SOURCE_DIR' does not exist."
+    exit 1
+fi
+
+mkdir -p "$OUTPUT_DIR" || {
+    echo "ERROR: Could not create output directory '$OUTPUT_DIR'."
+    exit 1
+}
 
 # ---- Check for metal tool ----
 if ! xcrun --sdk $SDK --find metal >/dev/null 2>&1; then
     echo "ERROR: Metal compiler not found."
-    echo "Make sure Xcode is installed and selected:"
+    echo "Try:"
     echo "  sudo xcode-select --switch /Applications/Xcode.app/Contents/Developer"
-    echo ""
-    echo "If needed:"
+    echo "or:"
     echo "  xcodebuild -downloadComponent MetalToolchain"
     exit 1
 fi
 
-# ---- Collect .metal files ----
-METAL_FILES=("$SHADER_DIR"/*.metal)
+# ---- Collect sources ----
+METAL_FILES=("$SOURCE_DIR"/*.metal)
 
 if [ ! -e "${METAL_FILES[0]}" ]; then
-    echo "ERROR: No .metal files found in $SHADER_DIR"
+    echo "ERROR: No .metal files found in '$SOURCE_DIR'."
     exit 1
 fi
 
+AIR_FILE="$OUTPUT_DIR/shaders.air"
+METALLIB_FILE="$OUTPUT_DIR/shaders.metallib"
+
+echo "=== Metal shader build ==="
+echo "Source: $SOURCE_DIR"
+echo "Output: $OUTPUT_DIR"
+
 # ---- Compile ----
-echo "Compiling Metal shaders..."
+echo "Compiling shaders..."
 if ! xcrun --sdk $SDK metal -c "${METAL_FILES[@]}" -o "$AIR_FILE"; then
-    echo "ERROR: Metal shader compilation failed."
+    echo "ERROR: Metal compilation failed."
     exit 1
 fi
 
