@@ -67,14 +67,6 @@ main :: proc() {
     backing_buffer := make([]byte, max_amount_of_active_shaders * size_of(Shader))
     shader_pool: Pool_Arena
     pool_init(&shader_pool, backing_buffer, size_of(Shader))
-
-    // Loading
-    v, f, e := load_shader("test.metal", "#VERTEX", "#FRAGMENT")
-    assert(e == nil)
-    shader := Shader {
-        vertex_source = v,
-        fragment_source = f,
-    }
 }
 
 init :: proc(renderers: int = 1) {
@@ -132,10 +124,21 @@ Buffer_Access :: enum {
 }
 
 Pipeline_Desc :: struct {
-    using _ : Shader,
+    type: Pipeline_Desc_Type,
     layouts: []Vertex_Layout,
     attributes: []Vertex_Attribute,
 }
+
+Pipeline_Desc_Type :: union {
+    Pipeline_Desc_Metal
+}
+
+// So far don't need else if you precompile shaders to metallib and load that in Metal
+Pipeline_Desc_Metal :: struct {
+    vertex_entry  : string,
+    fragment_entry: string,
+}
+
 
 Renderer_State_Header :: struct {
     is_alive: bool,
@@ -315,9 +318,7 @@ pool_free :: proc(p: ^Pool_Arena, ptr: rawptr) {
 }
 
 Shader :: struct {
-    vertex_source: string,
     vertex_entrypoint: string,
-    fragment_source: string,
     fragment_entrypoint: string,
 }
 
@@ -329,7 +330,7 @@ ShaderLanguage :: enum {
 
 file_section :: string
 
-load_shader :: proc(filepath, vertex_identifier, fragment_identifier: string) -> (vertex, fragment: string, err: os.Error) {
+load_shader :: proc(filepath, vertex_identifier, fragment_identifier: string, vertex_end, fragment_end: byte) -> (vertex, fragment: string, err: os.Error) {
     
     source_type: ShaderLanguage
     if strings.has_suffix(filepath, ".metal") {
@@ -344,8 +345,8 @@ load_shader :: proc(filepath, vertex_identifier, fragment_identifier: string) ->
     file_handle := open_file_stream(&reader, filepath) or_return
     defer close_file_stream(file_handle, &reader)
 
-    vertex = read_section(&reader, vertex_identifier, '}') or_return
-    fragment = read_section(&reader, fragment_identifier, '}') or_return
+    vertex = read_section(&reader, vertex_identifier, vertex_end) or_return
+    fragment = read_section(&reader, fragment_identifier, fragment_end) or_return
     
     return
 }

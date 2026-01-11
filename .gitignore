@@ -1,2 +1,4 @@
 *.metal
 .DS_STORE
+*.air
+*.metallib

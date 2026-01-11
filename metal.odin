@@ -52,6 +52,9 @@ Metal_State :: struct {
     command_buffer: ^MTL.CommandBuffer,
     render_encoder: ^MTL.RenderCommandEncoder,
 
+    // Shader library
+    shader_library: ^MTL.Library,
+
     // Pipeline storage
     pipelines: [MAX_PIPELINES]Metal_Pipeline,
 
@@ -91,6 +94,11 @@ metal_init :: proc(window: Window_Provider, size_vertex, size_index: uint) -> Re
 
     mtl_state.vertex_buffer = metal_create_buffer_zeros(id, size_vertex, .Vertex, .Dynamic)
     mtl_state.index_buffer  = metal_create_buffer_zeros(id, size_index, .Index, .Dynamic)
+
+    url := NS.URL_alloc()->initFileURLWithPath(NS.AT("shaders.metallib"))
+    library, err := mtl_state.device->newLibraryWithURL(url)
+    assert(err != nil, "Error loading library")
+    mtl_state.shader_library = library
 
     return id
 }
@@ -160,30 +168,17 @@ metal_vertex_format_to_mtl := [Vertex_Format]MTL.VertexFormat {
     .Float3 = .Float3,
     .Float4 = .Float4,
 }
-import "core:strings"
+
 metal_create_pipeline :: proc(id: Renderer_ID, desc: Pipeline_Desc) -> Pipeline_ID {
     mtl_state := cast(^Metal_State)get_state_from_id(id)
     pipeline_id := metal_get_free_pipeline(mtl_state)
 
-    // Compile shaders
-    vertex_source := NS.String.alloc()->initWithOdinString(desc.vertex_source)
-    fragment_source := NS.String.alloc()->initWithOdinString(desc.fragment_source)
-    compile_options := MTL.CompileOptions_alloc()->init()
-
-    vertex_library, vertex_lib_err := mtl_state.device->newLibraryWithSource(vertex_source, compile_options)
-    assert(vertex_lib_err == nil, "Vertex library error")
-    assert(vertex_library != nil, "Failed to compile vertex shader")
-
-    fragment_library, fragment_lib_err := mtl_state.device->newLibraryWithSource(fragment_source, compile_options)
-    assert(fragment_lib_err == nil, "Fragment library error")
-    assert(fragment_library != nil, "Failed to compile fragment shader")
-
-    function_name_vert := NS.String.alloc()->initWithOdinString(desc.vertex_entrypoint)
-    vertex_function := vertex_library->newFunctionWithName(function_name_vert)
+    function_name_vert := NS.String.alloc()->initWithOdinString(desc.type.(Pipeline_Desc_Metal).vertex_entry)
+    vertex_function := mtl_state.shader_library->newFunctionWithName(function_name_vert)
     assert(vertex_function != nil, "Vertex function 'vertex_main' not found")
     
-    function_name_frag := NS.String.alloc()->initWithOdinString(desc.fragment_entrypoint)
-    fragment_function := fragment_library->newFunctionWithName(function_name_frag)
+    function_name_frag := NS.String.alloc()->initWithOdinString(desc.type.(Pipeline_Desc_Metal).fragment_entry)
+    fragment_function := mtl_state.shader_library->newFunctionWithName(function_name_frag)
     assert(fragment_function != nil, "Fragment function 'fragment_main' not found")
 
     // Create vertex descriptor
