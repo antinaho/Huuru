@@ -29,7 +29,7 @@ Renderer_API :: struct {
 
     // Per frame
 
-    init: proc(window: Window_Provider, size_vertex: uint, size_index: uint) -> Renderer_ID,
+    init: proc(window: Window_Provider) -> Renderer_ID,
     begin_frame: proc(id: Renderer_ID),
     end_frame: proc(id: Renderer_ID),
 
@@ -99,7 +99,7 @@ main :: proc() {
     // Step 3: Initialize a renderer for the window
     // size_vertex: size of the internal vertex buffer
     // size_index: size of the internal index buffer
-    renderer_id := init_renderer(window, size_vertex = 1024 * 1024, size_index = 256 * 1024)
+    renderer_id := init_renderer(window)
 
     // Step 4: Set clear color (RGBA as bytes)
 
@@ -194,8 +194,8 @@ present :: proc() {
     RENDERER_API.present()
 }
 
-init_renderer :: proc(window: Window_Provider, size_vertex, size_index: uint) -> Renderer_ID {
-    return RENDERER_API.init(window, size_vertex, size_index)
+init_renderer :: proc(window: Window_Provider) -> Renderer_ID {
+    return RENDERER_API.init(window)
 }
 
 Renderer_ID :: distinct int

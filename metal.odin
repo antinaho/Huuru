@@ -10,7 +10,7 @@ import NS "core:sys/darwin/Foundation"
 import "core:mem"
 import "core:log"
 
-// Whether we're building for MacOS or iOS
+// Whether we're building for MacOS or iOS, does nothing for now
 MACOS :: #config(MACOS, true)
 
 METAL_RENDERER_API :: Renderer_API {
@@ -68,7 +68,7 @@ metal_state_size :: proc() -> int {
     return size_of(Metal_State)
 }
 
-metal_init :: proc(window: Window_Provider, size_vertex, size_index: uint) -> Renderer_ID {
+metal_init :: proc(window: Window_Provider) -> Renderer_ID {
     state, id := get_free_state()
     mtl_state := cast(^Metal_State)state
 
@@ -93,9 +93,6 @@ metal_init :: proc(window: Window_Provider, size_vertex, size_index: uint) -> Re
     mtl_state.command_queue = mtl_state.device->newCommandQueue()
     mtl_state.render_pass_descriptor = MTL.RenderPassDescriptor.alloc()->init()
     mtl_state.swapchain = swapchain
-
-    mtl_state.vertex_buffer = metal_create_buffer_zeros(id, size_vertex, .Vertex, .Dynamic)
-    mtl_state.index_buffer  = metal_create_buffer_zeros(id, size_index, .Index, .Dynamic)
 
     url := NS.URL.alloc()->initFileURLWithPath(NS.AT("shaders.metallib"))
     library, err := mtl_state.device->newLibraryWithURL(url)
@@ -122,6 +119,7 @@ metal_present :: proc() {
     }
 }
 
+@(private)
 mtl_state: ^Metal_State
 
 metal_begin_frame :: proc(id: Renderer_ID){
