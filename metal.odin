@@ -127,8 +127,7 @@ metal_present :: proc() {
             case Render_Command_Draw_Simple:
                 metal_draw_simple(cmd.id, cmd.bid, cmd.buffer_offset, cmd.buffer_index, cmd.primitive, cmd.vertex_start, cmd.vertex_count)
             case Render_Command_Bind_Pipeline:
-                assert(false, "pee pee poo poo")
-                //metal_draw_instanced()
+                metal_bind_pipeline(cmd.id, cmd.pipeline_id)
         }
     }
 }
