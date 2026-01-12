@@ -45,7 +45,7 @@ Renderer_API :: struct {
     destroy_buffer: proc(id: Renderer_ID, buffer: Buffer_ID),
 
     // Drawing
-    draw_simple: proc(renderer_id: Renderer_ID, type: Primitive_Type, vertex_start: uint, vertex_count: uint),
+    draw_simple: proc(renderer_id: Renderer_ID, buffer_id: Buffer_ID, buffer_offset: uint, buffer_index: uint, type: Primitive_Type, vertex_start: uint, vertex_count: uint),
     draw_instanced: proc(id: Renderer_ID, vertex_buffer: Buffer_ID, index_count, offset, instance_count: uint, index_type: Index_Type, primitive: Primitive_Type),
 
     //
@@ -161,14 +161,10 @@ main :: proc() {
 
         cmd_bind_pipeline({renderer_id, pipeline})
 
-        // Draw the triangle
-        // Note: You need to bind vertex buffer to the encoder separately if required
-        cmd_draw_simple({renderer_id, .Triangle, 0, len(vertices)})
+        cmd_draw_simple({renderer_id, vertex_buffer, 0, 0, .Triangle, 0, len(vertices)})
 
         // End frame - commits command buffer and presents
         cmd_end_frame({renderer_id})
-
-        // For this example, just run one frame
 
         present()
     }
@@ -383,6 +379,9 @@ Primitive_Type :: enum {
 
 Render_Command_Draw_Simple :: struct {
     id: Renderer_ID,
+    bid: Buffer_ID,
+    buffer_offset: uint,
+    buffer_index: uint,
     primitive: Primitive_Type,
     vertex_start: uint,
     vertex_count: uint,

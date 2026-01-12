@@ -125,7 +125,7 @@ metal_present :: proc() {
             case Render_Command_End_Frame:
                 metal_end_frame(cmd.id)
             case Render_Command_Draw_Simple:
-                metal_draw_simple(cmd.id, cmd.primitive, cmd.vertex_start, cmd.vertex_count)
+                metal_draw_simple(cmd.id, cmd.bid, cmd.buffer_offset, cmd.buffer_index, cmd.primitive, cmd.vertex_start, cmd.vertex_count)
             case Render_Command_Bind_Pipeline:
                 assert(false, "pee pee poo poo")
                 //metal_draw_instanced()
@@ -374,7 +374,9 @@ primitive_type_to_MTL_primitive := [Primitive_Type]MTL.PrimitiveType {
     .Triangle = .Triangle,
 }
 
-metal_draw_simple :: proc(id: Renderer_ID, primitive: Primitive_Type, vertex_start, vertex_count: uint) {
+metal_draw_simple :: proc(renderer_id: Renderer_ID, buffer_id: Buffer_ID, buffer_offset: uint, buffer_index: uint, primitive: Primitive_Type, vertex_start: uint, vertex_count: uint) {
+    mtl_buffer := mtl_state.buffers[0].buffer
+    mtl_state.render_encoder->setVertexBuffer(mtl_buffer, NS.UInteger(buffer_offset), NS.UInteger(buffer_index))
     mtl_state.render_encoder->drawPrimitives(
         primitive_type_to_MTL_primitive[primitive],
         NS.UInteger(vertex_start),
