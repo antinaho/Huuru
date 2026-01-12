@@ -130,9 +130,13 @@ swapchain_size :: proc() -> [2]int {
     }
 }
 
+import "core:fmt"
 resize_swapchain :: proc() {
+    fmt.println("1")
     size := mtl_state.window.get_size(mtl_state.window.window_id)
+    fmt.println("2")
     mtl_state.swapchain->setDrawableSize({NS.Float(size.x), NS.Float(size.y)})
+    fmt.println("3")
 }
 
 metal_begin_frame :: proc(id: Renderer_ID){
