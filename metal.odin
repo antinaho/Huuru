@@ -108,16 +108,6 @@ metal_init :: proc(window: Window_Provider, size_vertex, size_index: uint) -> Re
 metal_present :: proc() {
     NS.scoped_autoreleasepool()
 
-    if mtl_state.drawable == nil {
-        log.warn("Warning: No drawable, skipping frame")
-        return
-    }
-
-    if mtl_state.drawable->texture() == nil {
-        log.warn("Warning: Drawable texture is nil, skipping frame")
-        return
-    }
-
     for render_command in renderer.render_commands[:renderer.render_command_c] {
         switch cmd in render_command {
             case Render_Command_Begin_Frame:
@@ -139,6 +129,16 @@ metal_begin_frame :: proc(id: Renderer_ID){
 
     // Acquire next drawable
     mtl_state.drawable = mtl_state.swapchain->nextDrawable()
+    
+    if mtl_state.drawable == nil {
+        log.warn("Warning: No drawable, skipping frame")
+        return
+    }
+
+    if mtl_state.drawable->texture() == nil {
+        log.warn("Warning: Drawable texture is nil, skipping frame")
+        return
+    }
     
     // Configure render pass descriptor with clear color
     color_attachment := mtl_state.render_pass_descriptor->colorAttachments()->object(0)
@@ -260,7 +260,7 @@ metal_destroy_pipeline :: proc(id: Renderer_ID, pipeline: Pipeline_ID) {
 }
 
 metal_bind_pipeline :: proc(id: Renderer_ID, pipeline: Pipeline_ID) {
-    assert(mtl_state != nil)    
+    assert(mtl_state != nil, "State not set")    
     assert(int(pipeline) < MAX_PIPELINES && int(pipeline) >= 0, "Invalid Pipeline_ID")
     assert(mtl_state.pipelines[pipeline].is_alive, "Cannot bind destroyed pipeline")
     
@@ -384,7 +384,7 @@ metal_draw_simple :: proc(renderer_id: Renderer_ID, buffer_id: Buffer_ID, buffer
 }
 
 metal_draw_instanced :: proc(id: Renderer_ID, bid: Buffer_ID, index_count, index_buffer_offset, instance_count: uint, index_type: Index_Type, primitive: Primitive_Type) {
-    assert(mtl_state != nil)
+    assert(mtl_state != nil, "State not set")
     assert(int(bid) < MAX_BUFFERS && int(bid) >= 0, "Invalid Buffer_ID")
     assert(mtl_state.buffers[bid].is_alive, "Cannot draw with destroyed buffer")
     assert(mtl_state.buffers[bid].type == .Vertex, "Buffer must be a vertex buffer")
