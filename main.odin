@@ -170,6 +170,8 @@ main :: proc() {
     destroy_buffer(renderer_id, vertex_buffer)
     destroy_buffer(renderer_id, index_buffer)
     destroy_pipeline(renderer_id, pipeline)
+
+    destroy()
 }
 
 init :: proc(renderers: int = 1) {
@@ -291,6 +293,8 @@ Window_Provider :: struct {
     
     get_size: proc(window_id: rawptr) -> [2]int,
     get_native_handle: proc(window_id: rawptr) -> rawptr,
+    is_visible: proc(window_id: rawptr) -> bool,
+    is_minimized: proc(window_id: rawptr) -> bool,
 }
 
 // Frame management

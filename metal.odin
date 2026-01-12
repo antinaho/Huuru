@@ -122,14 +122,36 @@ metal_present :: proc() {
 @(private)
 mtl_state: ^Metal_State
 
+swapchain_size :: proc() -> [2]int {
+    size := mtl_state.swapchain->drawableSize()
+    return {
+        int(size.width),
+        int(size.height)
+    }
+}
+
+resize_swapchain :: proc() {
+    mtl_state.swapchain->setDrawableSize({NS.Float(mtl_state.window.get_size(mtl_state.window.window_id)[0]), NS.Float(mtl_state.window.get_size(mtl_state.window.window_id)[1])})
+}
+
 metal_begin_frame :: proc(id: Renderer_ID){
     mtl_state = cast(^Metal_State)get_state_from_id(id)
 
     // Acquire next drawable
     mtl_state.drawable = mtl_state.swapchain->nextDrawable()
     
+    if !mtl_state.window.is_visible(mtl_state.window.window_id) || mtl_state.window.is_minimized(mtl_state.window.window_id) {
+        log.info("Window not visible or minimized, skipping draw")
+        return
+    }
+
     if mtl_state.drawable == nil {
         log.warn("Warning: No drawable, skipping frame")
+        return
+    }
+
+    if mtl_state.window.get_size(mtl_state.window.window_id) != swapchain_size() {
+        resize_swapchain()
         return
     }
 
