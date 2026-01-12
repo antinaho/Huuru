@@ -131,7 +131,8 @@ swapchain_size :: proc() -> [2]int {
 }
 
 resize_swapchain :: proc() {
-    mtl_state.swapchain->setDrawableSize({NS.Float(mtl_state.window.get_size(mtl_state.window.window_id)[0]), NS.Float(mtl_state.window.get_size(mtl_state.window.window_id)[1])})
+    size := mtl_state.window.get_size(mtl_state.window.window_id)
+    mtl_state.swapchain->setDrawableSize({NS.Float(size.x), NS.Float(size.y)})
 }
 
 metal_begin_frame :: proc(id: Renderer_ID){
@@ -151,6 +152,7 @@ metal_begin_frame :: proc(id: Renderer_ID){
     }
 
     if mtl_state.window.get_size(mtl_state.window.window_id) != swapchain_size() {
+        log.info("Resizing swapchain")
         resize_swapchain()
         return
     }
@@ -159,12 +161,6 @@ metal_begin_frame :: proc(id: Renderer_ID){
         log.warn("Warning: Drawable texture is nil, skipping frame")
         return
     }
-    
-    // Configure render pass descriptor with clear color
-    color_attachment := mtl_state.render_pass_descriptor->colorAttachments()->object(0)
-    color_attachment->setTexture(mtl_state.drawable->texture())
-    color_attachment->setLoadAction(.Clear)
-    color_attachment->setStoreAction(.Store)
 
     color_to_mtl_color :: proc(color: Color) -> MTL.ClearColor {
         return {
@@ -175,6 +171,10 @@ metal_begin_frame :: proc(id: Renderer_ID){
         }
     }
 
+    color_attachment := mtl_state.render_pass_descriptor->colorAttachments()->object(0)
+    color_attachment->setTexture(mtl_state.drawable->texture())
+    color_attachment->setLoadAction(.Clear)
+    color_attachment->setStoreAction(.Store)
     color_attachment->setClearColor(color_to_mtl_color(mtl_state.clear_color))
 
     // Create command buffer and render encoder
