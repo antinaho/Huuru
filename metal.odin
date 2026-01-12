@@ -18,7 +18,6 @@ METAL_RENDERER_API :: Renderer_API {
     init = metal_init,
     begin_frame = metal_begin_frame,
     end_frame = metal_end_frame,
-    set_clear_color = metal_set_clear_color,
     create_pipeline = metal_create_pipeline,
     destroy_pipeline = metal_destroy_pipeline,
     bind_pipeline = metal_bind_pipeline,
@@ -28,7 +27,10 @@ METAL_RENDERER_API :: Renderer_API {
     push_buffer = metal_push_buffer,
     destroy_buffer = metal_destroy_buffer,
     
+    draw_simple = metal_draw_simple,
     draw_instanced = metal_draw_instanced,
+
+    present = metal_present,
 }
 
 Metal_Pipeline :: struct {
@@ -103,8 +105,38 @@ metal_init :: proc(window: Window_Provider, size_vertex, size_index: uint) -> Re
     return id
 }
 
-metal_begin_frame :: proc(id: Renderer_ID) {
-    mtl_state := cast(^Metal_State)get_state_from_id(id)
+metal_present :: proc() {
+    NS.scoped_autoreleasepool()
+
+    if mtl_state.drawable == nil {
+        log.warn("Warning: No drawable, skipping frame")
+        return
+    }
+
+    if mtl_state.drawable->texture() == nil {
+        log.warn("Warning: Drawable texture is nil, skipping frame")
+        return
+    }
+
+    for render_command in renderer.render_commands[:renderer.render_command_c] {
+        switch cmd in render_command {
+            case Render_Command_Begin_Frame:
+                metal_begin_frame(cmd.id)
+            case Render_Command_End_Frame:
+                metal_end_frame(cmd.id)
+            case Render_Command_Draw_Simple:
+                metal_draw_simple(cmd.id, cmd.primitive, cmd.vertex_start, cmd.vertex_count)
+            case Render_Command_Bind_Pipeline:
+                assert(false, "pee pee poo poo")
+                //metal_draw_instanced()
+        }
+    }
+}
+
+mtl_state: ^Metal_State
+
+metal_begin_frame :: proc(id: Renderer_ID){
+    mtl_state = cast(^Metal_State)get_state_from_id(id)
 
     // Acquire next drawable
     mtl_state.drawable = mtl_state.swapchain->nextDrawable()
@@ -134,7 +166,7 @@ metal_begin_frame :: proc(id: Renderer_ID) {
 }
 
 metal_end_frame :: proc(id: Renderer_ID) {
-    mtl_state := cast(^Metal_State)get_state_from_id(id)
+    assert(mtl_state != nil, "Render state is nil")
 
     // End encoding
     mtl_state.render_encoder->endEncoding()
@@ -142,11 +174,8 @@ metal_end_frame :: proc(id: Renderer_ID) {
     // Present and commit
     mtl_state.command_buffer->presentDrawable(mtl_state.drawable)
     mtl_state.command_buffer->commit()
-}
 
-metal_set_clear_color :: proc(id: Renderer_ID, color: Color) {
-    mtl_state := cast(^Metal_State)get_state_from_id(id)
-    mtl_state.clear_color = color
+    mtl_state = nil
 }
 
 // Pipeline functions
@@ -232,12 +261,12 @@ metal_destroy_pipeline :: proc(id: Renderer_ID, pipeline: Pipeline_ID) {
 }
 
 metal_bind_pipeline :: proc(id: Renderer_ID, pipeline: Pipeline_ID) {
-    mtl_state := cast(^Metal_State)get_state_from_id(id)
-    
+    assert(mtl_state != nil)    
     assert(int(pipeline) < MAX_PIPELINES && int(pipeline) >= 0, "Invalid Pipeline_ID")
     assert(mtl_state.pipelines[pipeline].is_alive, "Cannot bind destroyed pipeline")
     
     mtl_state.render_encoder->setRenderPipelineState(mtl_state.pipelines[pipeline].pipeline_state)
+    mtl_state.render_encoder->setTriangleFillMode(.Fill)
 }
 
 // Buffer functions
@@ -345,9 +374,16 @@ primitive_type_to_MTL_primitive := [Primitive_Type]MTL.PrimitiveType {
     .Triangle = .Triangle,
 }
 
-metal_draw_instanced :: proc(id: Renderer_ID, bid: Buffer_ID, index_count, index_buffer_offset, instance_count: uint, index_type: Index_Type, primitive: Primitive_Type) {
-    mtl_state := cast(^Metal_State)get_state_from_id(id)
+metal_draw_simple :: proc(id: Renderer_ID, primitive: Primitive_Type, vertex_start, vertex_count: uint) {
+    mtl_state.render_encoder->drawPrimitives(
+        primitive_type_to_MTL_primitive[primitive],
+        NS.UInteger(vertex_start),
+        NS.UInteger(vertex_count)
+    )
+}
 
+metal_draw_instanced :: proc(id: Renderer_ID, bid: Buffer_ID, index_count, index_buffer_offset, instance_count: uint, index_type: Index_Type, primitive: Primitive_Type) {
+    assert(mtl_state != nil)
     assert(int(bid) < MAX_BUFFERS && int(bid) >= 0, "Invalid Buffer_ID")
     assert(mtl_state.buffers[bid].is_alive, "Cannot draw with destroyed buffer")
     assert(mtl_state.buffers[bid].type == .Vertex, "Buffer must be a vertex buffer")

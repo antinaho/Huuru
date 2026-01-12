@@ -23,12 +23,15 @@ when RENDERER_CHOISE == "" {
 RENDERER_API :: DEFAULT_RENDERER_API
 
 Renderer_API :: struct {
+
+    // Initialization
     state_size: proc() -> int,
+
+    // Per frame
 
     init: proc(window: Window_Provider, size_vertex: uint, size_index: uint) -> Renderer_ID,
     begin_frame: proc(id: Renderer_ID),
     end_frame: proc(id: Renderer_ID),
-    set_clear_color: proc(id: Renderer_ID, color: Color),
 
     // Pipeline
     create_pipeline: proc(id: Renderer_ID, desc: Pipeline_Desc) -> Pipeline_ID,
@@ -42,7 +45,11 @@ Renderer_API :: struct {
     destroy_buffer: proc(id: Renderer_ID, buffer: Buffer_ID),
 
     // Drawing
+    draw_simple: proc(renderer_id: Renderer_ID, type: Primitive_Type, vertex_start: uint, vertex_count: uint),
     draw_instanced: proc(id: Renderer_ID, vertex_buffer: Buffer_ID, index_count, offset, instance_count: uint, index_type: Index_Type, primitive: Primitive_Type),
+
+    //
+    present: proc(),
 }
 
 Renderer :: struct {
@@ -53,6 +60,8 @@ Renderer :: struct {
     max_renderers: int,
 
     frame_allocator: runtime.Allocator,
+    render_commands: []Render_Command,
+    render_command_c: int,
 }
 
 renderer: Renderer
@@ -61,12 +70,113 @@ MAX_PIPELINES :: #config(MAX_PIPELINES, 8)
 MAX_BUFFERS   :: #config(MAX_BUFFERS, 8)
 
 main :: proc() {
+    // Example: Setting up the renderer and draw loop
+    // 
+    // This demonstrates how to use the Huuru renderer API to:
+    // 1. Initialize the renderer system
+    // 2. Create a renderer attached to a window
+    // 3. Set up a pipeline with shaders
+    // 4. Create vertex/index buffers
+    // 5. Run a basic draw loop
 
-    // Shader assets
-    max_amount_of_active_shaders := 16
-    backing_buffer := make([]byte, max_amount_of_active_shaders * size_of(Shader))
-    shader_pool: Pool_Arena
-    pool_init(&shader_pool, backing_buffer, size_of(Shader))
+    // Step 1: Initialize the renderer system (call once at startup)
+    init(renderers = 1)
+
+    // Step 2: Create a window provider
+    // You need to implement these callbacks for your windowing system (e.g., SDL, GLFW, native)
+    window := Window_Provider {
+        window_id = nil, // Your window handle
+        get_size = proc(window_id: rawptr) -> [2]int {
+            // Return window dimensions
+            return {800, 600}
+        },
+        get_native_handle = proc(window_id: rawptr) -> rawptr {
+            // Return native window handle (NSWindow* on macOS)
+            return nil
+        },
+    }
+
+    // Step 3: Initialize a renderer for the window
+    // size_vertex: size of the internal vertex buffer
+    // size_index: size of the internal index buffer
+    renderer_id := init_renderer(window, size_vertex = 1024 * 1024, size_index = 256 * 1024)
+
+    // Step 4: Set clear color (RGBA as bytes)
+
+    // Step 5: Create a pipeline
+    // Requires a precompiled shaders.metallib with vertex and fragment functions
+    Vertex :: struct {
+        position: [4]f32,
+        color:    [4]f32,
+    }
+
+    pipeline := create_pipeline(renderer_id, Pipeline_Desc{
+        type = Pipeline_Desc_Metal{
+            vertex_entry   = "hello_triangle_vertex",
+            fragment_entry = "hello_triangle_fragment",
+        },
+        layouts = {
+            Vertex_Layout{
+                stride    = size_of(Vertex),
+                step_rate = .PerVertex,
+            },
+        },
+        attributes = {
+            Vertex_Attribute{ format = .Float4, offset = offset_of(Vertex, position), binding = 0 },
+            Vertex_Attribute{ format = .Float4, offset = offset_of(Vertex, color),    binding = 0 },
+        },
+    })
+
+    // Step 6: Create vertex and index buffers
+    vertices := []Vertex{
+        { position = {-0.5, -0.5, 0.0, 0.0}, color = {1.0, 0.0, 0.0, 1.0} }, // Red
+        { position = { 0.5, -0.5, 0.0, 0.0}, color = {0.0, 1.0, 0.0, 1.0} }, // Green
+        { position = { 0.0,  0.5, 0.0, 0.0}, color = {0.0, 0.0, 1.0, 1.0} }, // Blue
+    }
+    
+    indices := []u16{ 0, 1, 2 }
+
+    vertex_buffer := create_buffer(
+        renderer_id,
+        raw_data(vertices),
+        len(vertices) * size_of(Vertex),
+        .Vertex,
+        .Static,
+    )
+
+    index_buffer := create_buffer(
+        renderer_id,
+        raw_data(indices),
+        len(indices) * size_of(u16),
+        .Index,
+        .Static,
+    )
+
+    // Step 7: Draw loop
+    running := true
+    for running {
+        renderer.render_command_c = 0
+
+        cmd_begin_frame({renderer_id})
+
+        cmd_bind_pipeline({renderer_id, pipeline})
+
+        // Draw the triangle
+        // Note: You need to bind vertex buffer to the encoder separately if required
+        cmd_draw_simple({renderer_id, .Triangle, 0, len(vertices)})
+
+        // End frame - commits command buffer and presents
+        cmd_end_frame({renderer_id})
+
+        // For this example, just run one frame
+
+        present()
+    }
+
+    // Step 8: Cleanup
+    destroy_buffer(renderer_id, vertex_buffer)
+    destroy_buffer(renderer_id, index_buffer)
+    destroy_pipeline(renderer_id, pipeline)
 }
 
 init :: proc(renderers: int = 1) {
@@ -80,13 +190,19 @@ init :: proc(renderers: int = 1) {
     renderer.state_size = state_size
     renderer.max_renderers = renderers
     renderer.frame_allocator = context.temp_allocator
+    renderer.render_commands = make([]Render_Command, 128)
+    renderer.render_command_c = 0
+}
+
+present :: proc() {
+    RENDERER_API.present()
 }
 
 init_renderer :: proc(window: Window_Provider, size_vertex, size_index: uint) -> Renderer_ID {
     return RENDERER_API.init(window, size_vertex, size_index)
 }
 
-Renderer_ID :: distinct uint
+Renderer_ID :: distinct int
 Pipeline_ID :: distinct uint
 Buffer_ID :: distinct uint
 
@@ -179,12 +295,36 @@ Window_Provider :: struct {
 }
 
 // Frame management
-begin_frame :: proc(id: Renderer_ID) {
-    RENDERER_API.begin_frame(id)
+Render_Command :: union {
+    Render_Command_Draw_Simple,
+    Render_Command_Bind_Pipeline,
+    Render_Command_Begin_Frame,
+    Render_Command_End_Frame,
 }
 
-end_frame :: proc(id: Renderer_ID) {
-    RENDERER_API.end_frame(id)
+Render_Command_Begin_Frame :: struct {
+    id: Renderer_ID,
+}
+
+Render_Command_End_Frame :: struct {
+    id: Renderer_ID
+}
+
+cmd_begin_frame :: proc(cmd: Render_Command_Begin_Frame) {
+    insert_render_command(cmd)
+}
+
+cmd_end_frame :: proc(cmd: Render_Command_End_Frame) {
+    insert_render_command(cmd)
+}
+
+insert_render_command :: proc(cmd: Render_Command) {
+    renderer.render_commands[renderer.render_command_c] = cmd
+    renderer.render_command_c += 1
+
+    if renderer.render_command_c >= len(renderer.render_commands) {
+        assert(false, "Too many commands")
+    }
 }
 
 // Pipeline
@@ -196,8 +336,13 @@ destroy_pipeline :: proc(id: Renderer_ID, pipeline: Pipeline_ID) {
     RENDERER_API.destroy_pipeline(id, pipeline)
 }
 
-bind_pipeline :: proc(id: Renderer_ID, pipeline: Pipeline_ID) {
-    RENDERER_API.bind_pipeline(id, pipeline)
+Render_Command_Bind_Pipeline :: struct {
+    id: Renderer_ID,
+    pipeline_id: Pipeline_ID,
+}
+
+cmd_bind_pipeline :: proc(cmd: Render_Command_Bind_Pipeline) {
+    insert_render_command(cmd)
 }
 
 // Buffer
@@ -236,8 +381,15 @@ Primitive_Type :: enum {
     Triangle,
 }
 
-set_clear_color :: proc(id: Renderer_ID, color: Color) {
-    RENDERER_API.set_clear_color(id, color)
+Render_Command_Draw_Simple :: struct {
+    id: Renderer_ID,
+    primitive: Primitive_Type,
+    vertex_start: uint,
+    vertex_count: uint,
+}
+
+cmd_draw_simple :: proc(cmd: Render_Command_Draw_Simple) {
+    insert_render_command(cmd)
 }
 
 draw_instanced :: proc(id: Renderer_ID, vertex_buffer: Buffer_ID, index_count, index_buffer_offset, instance_count: uint, index_type: Index_Type, primitive: Primitive_Type) {
