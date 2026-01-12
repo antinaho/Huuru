@@ -62,6 +62,8 @@ Renderer :: struct {
     frame_allocator: runtime.Allocator,
     render_commands: []Render_Command,
     render_command_c: int,
+
+    arena: mem.Arena,
 }
 
 renderer: Renderer
@@ -97,11 +99,7 @@ main :: proc() {
     }
 
     // Step 3: Initialize a renderer for the window
-    // size_vertex: size of the internal vertex buffer
-    // size_index: size of the internal index buffer
     renderer_id := init_renderer(window)
-
-    // Step 4: Set clear color (RGBA as bytes)
 
     // Step 5: Create a pipeline
     // Requires a precompiled shaders.metallib with vertex and fragment functions
@@ -163,7 +161,6 @@ main :: proc() {
 
         cmd_draw_simple({renderer_id, vertex_buffer, 0, 0, .Triangle, 0, len(vertices)})
 
-        // End frame - commits command buffer and presents
         cmd_end_frame({renderer_id})
 
         present()
@@ -178,16 +175,22 @@ main :: proc() {
 init :: proc(renderers: int = 1) {
     assert(renderers >= 1, "Need at least 1 renderer!")
 
-    renderer.ctx = context
+    backing := make([]byte, 16 * mem.Kilobyte)
+    mem.arena_init(&renderer.arena, backing)
+    arena_allocator := mem.arena_allocator(&renderer.arena)
 
+    renderer.ctx = context
     state_size := RENDERER_API.state_size()
     
-    renderer.renderer_states = make([]byte, state_size * renderers)
+    renderer.renderer_states = make([]byte, state_size * renderers, arena_allocator)
     renderer.state_size = state_size
     renderer.max_renderers = renderers
     renderer.frame_allocator = context.temp_allocator
-    renderer.render_commands = make([]Render_Command, 128)
-    renderer.render_command_c = 0
+    renderer.render_commands = make([]Render_Command, 128, arena_allocator)
+}
+
+destroy :: proc() {
+    delete(renderer.arena.data)
 }
 
 present :: proc() {
