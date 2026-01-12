@@ -57,6 +57,9 @@ Metal_State :: struct {
     // Shader library
     shader_library: ^MTL.Library,
 
+    // Skip frame flag (set when resize/visibility causes early return)
+    skip_frame: bool,
+
     // Pipeline storage
     pipelines: [MAX_PIPELINES]Metal_Pipeline,
 
@@ -141,28 +144,33 @@ resize_swapchain :: proc() {
 
 metal_begin_frame :: proc(id: Renderer_ID){
     mtl_state = cast(^Metal_State)get_state_from_id(id)
+    mtl_state.skip_frame = false
 
     // Acquire next drawable
     mtl_state.drawable = mtl_state.swapchain->nextDrawable()
     
     if !mtl_state.window.is_visible(mtl_state.window.window_id) || mtl_state.window.is_minimized(mtl_state.window.window_id) {
         log.info("Window not visible or minimized, skipping draw")
+        mtl_state.skip_frame = true
         return
     }
 
     if mtl_state.drawable == nil {
         log.warn("Warning: No drawable, skipping frame")
+        mtl_state.skip_frame = true
         return
     }
 
     if mtl_state.window.get_size(mtl_state.window.window_id) != swapchain_size() {
         log.info("Resizing swapchain")
         resize_swapchain()
+        mtl_state.skip_frame = true
         return
     }
 
     if mtl_state.drawable->texture() == nil {
         log.warn("Warning: Drawable texture is nil, skipping frame")
+        mtl_state.skip_frame = true
         return
     }
 
@@ -190,6 +198,11 @@ metal_begin_frame :: proc(id: Renderer_ID){
 
 metal_end_frame :: proc(id: Renderer_ID) {
     assert(mtl_state != nil, "Render state is nil")
+
+    if mtl_state.skip_frame {
+        mtl_state = nil
+        return
+    }
 
     // End encoding
     mtl_state.render_encoder->endEncoding()
@@ -285,6 +298,8 @@ metal_destroy_pipeline :: proc(id: Renderer_ID, pipeline: Pipeline_ID) {
 
 metal_bind_pipeline :: proc(id: Renderer_ID, pipeline: Pipeline_ID) {
     assert(mtl_state != nil, "State not set")    
+    if mtl_state.skip_frame do return
+    
     assert(int(pipeline) < MAX_PIPELINES && int(pipeline) >= 0, "Invalid Pipeline_ID")
     assert(mtl_state.pipelines[pipeline].is_alive, "Cannot bind destroyed pipeline")
     
@@ -398,6 +413,8 @@ primitive_type_to_MTL_primitive := [Primitive_Type]MTL.PrimitiveType {
 }
 
 metal_draw_simple :: proc(renderer_id: Renderer_ID, buffer_id: Buffer_ID, buffer_offset: uint, buffer_index: uint, primitive: Primitive_Type, vertex_start: uint, vertex_count: uint) {
+    if mtl_state.skip_frame do return
+    
     mtl_buffer := mtl_state.buffers[0].buffer
     mtl_state.render_encoder->setVertexBuffer(mtl_buffer, NS.UInteger(buffer_offset), NS.UInteger(buffer_index))
     mtl_state.render_encoder->drawPrimitives(
@@ -409,6 +426,8 @@ metal_draw_simple :: proc(renderer_id: Renderer_ID, buffer_id: Buffer_ID, buffer
 
 metal_draw_instanced :: proc(id: Renderer_ID, bid: Buffer_ID, index_count, index_buffer_offset, instance_count: uint, index_type: Index_Type, primitive: Primitive_Type) {
     assert(mtl_state != nil, "State not set")
+    if mtl_state.skip_frame do return
+    
     assert(int(bid) < MAX_BUFFERS && int(bid) >= 0, "Invalid Buffer_ID")
     assert(mtl_state.buffers[bid].is_alive, "Cannot draw with destroyed buffer")
     assert(mtl_state.buffers[bid].type == .Vertex, "Buffer must be a vertex buffer")
