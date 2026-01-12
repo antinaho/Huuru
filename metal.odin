@@ -26,6 +26,10 @@ METAL_RENDERER_API :: Renderer_API {
     create_buffer_zeros = create_buffer_zeros,
     push_buffer = metal_push_buffer,
     destroy_buffer = metal_destroy_buffer,
+
+    create_texture = metal_create_texture,
+    destroy_texture = metal_destroy_texture,
+    bind_texture = metal_bind_texture,
     
     draw_simple = metal_draw_simple,
     draw_instanced = metal_draw_instanced,
@@ -42,6 +46,12 @@ Metal_Buffer :: struct {
     is_alive: bool,
     buffer: ^MTL.Buffer,
     type: Buffer_Type,
+}
+
+Metal_Texture :: struct {
+    is_alive: bool,
+    texture: ^MTL.Texture,
+    sampler: ^MTL.SamplerState,
 }
 
 Metal_State :: struct {
@@ -65,6 +75,9 @@ Metal_State :: struct {
 
     // Buffer storage
     buffers: [MAX_BUFFERS]Metal_Buffer,
+
+    // Texture storage
+    textures: [MAX_TEXTURES]Metal_Texture,
 }
 
 metal_state_size :: proc() -> int {
@@ -118,6 +131,8 @@ metal_present :: proc() {
                 metal_draw_simple(cmd.id, cmd.bid, cmd.buffer_offset, cmd.buffer_index, cmd.primitive, cmd.vertex_start, cmd.vertex_count)
             case Render_Command_Bind_Pipeline:
                 metal_bind_pipeline(cmd.id, cmd.pipeline_id)
+            case Render_Command_Bind_Texture:
+                metal_bind_texture(cmd.id, cmd.texture_id, cmd.slot)
         }
     }
 }
@@ -133,13 +148,9 @@ swapchain_size :: proc() -> [2]int {
     }
 }
 
-import "core:fmt"
 resize_swapchain :: proc() {
-    fmt.println("1")
     size := mtl_state.window.get_size(mtl_state.window.window_id)
-    fmt.println("2")
     mtl_state.swapchain->setDrawableSize({NS.Float(size.x), NS.Float(size.y)})
-    fmt.println("3")
 }
 
 metal_begin_frame :: proc(id: Renderer_ID){
@@ -399,6 +410,128 @@ metal_destroy_buffer :: proc(id: Renderer_ID, buffer: Buffer_ID) {
     mtl_state.buffers[buffer].buffer->release()
     mtl_state.buffers[buffer].is_alive = false
     mtl_state.buffers[buffer].buffer = nil
+}
+
+// Texture functions
+
+@(private="file")
+metal_get_free_texture :: proc(mtl_state: ^Metal_State) -> Texture_ID {
+    for i in 0..<MAX_TEXTURES {
+        if !mtl_state.textures[i].is_alive {
+            return Texture_ID(i)
+        }
+    }
+    log.panic("All texture slots are in use!")
+}
+
+@(private="file")
+texture_format_to_mtl := [Texture_Format]MTL.PixelFormat {
+    .RGBA8    = .RGBA8Unorm,
+    .BGRA8    = .BGRA8Unorm,
+    .R8       = .R8Unorm,
+    .RG8      = .RG8Unorm,
+    .RGBA16F  = .RGBA16Float,
+    .RGBA32F  = .RGBA32Float,
+}
+
+@(private="file")
+texture_format_bytes_per_pixel := [Texture_Format]int {
+    .RGBA8    = 4,
+    .BGRA8    = 4,
+    .R8       = 1,
+    .RG8      = 2,
+    .RGBA16F  = 8,
+    .RGBA32F  = 16,
+}
+
+@(private="file")
+texture_filter_to_mtl := [Texture_Filter]MTL.SamplerMinMagFilter {
+    .Nearest = .Nearest,
+    .Linear  = .Linear,
+}
+
+@(private="file")
+texture_wrap_to_mtl := [Texture_Wrap]MTL.SamplerAddressMode {
+    .Repeat       = .Repeat,
+    .ClampToEdge  = .ClampToEdge,
+    .MirrorRepeat = .MirrorRepeat,
+}
+
+metal_create_texture :: proc(id: Renderer_ID, desc: Texture_Desc) -> Texture_ID {
+    mtl_state := cast(^Metal_State)get_state_from_id(id)
+    texture_id := metal_get_free_texture(mtl_state)
+
+    // Create texture descriptor
+    texture_desc := MTL.TextureDescriptor.texture2DDescriptorWithPixelFormat(
+        texture_format_to_mtl[desc.format],
+        NS.UInteger(desc.width),
+        NS.UInteger(desc.height),
+        false, // mipmapped
+    )
+    texture_desc->setUsage({.ShaderRead})
+    texture_desc->setStorageMode(.Managed)
+
+    // Create the texture
+    texture := mtl_state.device->newTextureWithDescriptor(texture_desc)
+    assert(texture != nil, "Failed to create Metal texture")
+
+    // Upload pixel data if provided
+    if desc.data != nil {
+        bytes_per_row := desc.bytes_per_row
+        if bytes_per_row == 0 {
+            bytes_per_row = desc.width * texture_format_bytes_per_pixel[desc.format]
+        }
+
+        texture->replaceRegion(
+            MTL.Region {
+                origin = {0, 0, 0},
+                size = {NS.Integer(desc.width), NS.Integer(desc.height), 1},
+            },
+            0, // mipmap level
+            desc.data,
+            NS.UInteger(bytes_per_row),
+        )
+    }
+
+    // Create sampler state
+    // TODO extract sampler to its own object?
+    sampler_desc := MTL.SamplerDescriptor.alloc()->init()
+    sampler_desc->setMinFilter(texture_filter_to_mtl[desc.min_filter])
+    sampler_desc->setMagFilter(texture_filter_to_mtl[desc.mag_filter])
+    sampler_desc->setSAddressMode(texture_wrap_to_mtl[desc.wrap_s])
+    sampler_desc->setTAddressMode(texture_wrap_to_mtl[desc.wrap_t])
+
+    sampler := mtl_state.device->newSamplerState(sampler_desc)
+    assert(sampler != nil, "Failed to create Metal sampler state")
+
+    mtl_state.textures[texture_id].is_alive = true
+    mtl_state.textures[texture_id].texture = texture
+    mtl_state.textures[texture_id].sampler = sampler
+
+    return texture_id
+}
+
+metal_bind_texture :: proc(id: Renderer_ID, texture: Texture_ID, slot: uint) {
+    if mtl_state == nil || mtl_state.skip_frame do return
+
+    assert(int(texture) < MAX_TEXTURES && int(texture) >= 0, "Invalid Texture_ID")
+    assert(mtl_state.textures[texture].is_alive, "Cannot bind destroyed texture")
+
+    mtl_state.render_encoder->setFragmentTexture(mtl_state.textures[texture].texture, NS.UInteger(slot))
+    mtl_state.render_encoder->setFragmentSamplerState(mtl_state.textures[texture].sampler, NS.UInteger(slot))
+}
+
+metal_destroy_texture :: proc(id: Renderer_ID, texture: Texture_ID) {
+    mtl_state := cast(^Metal_State)get_state_from_id(id)
+
+    assert(int(texture) < MAX_TEXTURES && int(texture) >= 0, "Invalid Texture_ID")
+    assert(mtl_state.textures[texture].is_alive, "Texture already destroyed")
+
+    mtl_state.textures[texture].texture->release()
+    mtl_state.textures[texture].sampler->release()
+    mtl_state.textures[texture].is_alive = false
+    mtl_state.textures[texture].texture = nil
+    mtl_state.textures[texture].sampler = nil
 }
 
 // Drawing functions

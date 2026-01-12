@@ -44,6 +44,11 @@ Renderer_API :: struct {
     push_buffer: proc(id: Renderer_ID, bid: Buffer_ID, data: rawptr, offset: uint, lenght: int, access: Buffer_Access),
     destroy_buffer: proc(id: Renderer_ID, buffer: Buffer_ID),
 
+    // Textures
+    create_texture: proc(id: Renderer_ID, desc: Texture_Desc) -> Texture_ID,
+    destroy_texture: proc(id: Renderer_ID, texture: Texture_ID),
+    bind_texture: proc(id: Renderer_ID, texture: Texture_ID, slot: uint),
+
     // Drawing
     draw_simple: proc(renderer_id: Renderer_ID, buffer_id: Buffer_ID, buffer_offset: uint, buffer_index: uint, type: Primitive_Type, vertex_start: uint, vertex_count: uint),
     draw_instanced: proc(id: Renderer_ID, vertex_buffer: Buffer_ID, index_count, offset, instance_count: uint, index_type: Index_Type, primitive: Primitive_Type),
@@ -70,6 +75,7 @@ renderer: Renderer
 
 MAX_PIPELINES :: #config(MAX_PIPELINES, 8)
 MAX_BUFFERS   :: #config(MAX_BUFFERS, 8)
+MAX_TEXTURES  :: #config(MAX_TEXTURES, 16)
 
 main :: proc() {
     // Example: Setting up the renderer and draw loop
@@ -150,6 +156,19 @@ main :: proc() {
         .Static,
     )
 
+    // Step 6b: Load and create texture
+    tex_data, tex_width, tex_height := load_tex("assets/texture.png")
+    texture := create_texture(renderer_id, Texture_Desc{
+        width      = tex_width,
+        height     = tex_height,
+        format     = .RGBA8,
+        min_filter = .Linear,
+        mag_filter = .Linear,
+        wrap_s     = .Repeat,
+        wrap_t     = .Repeat,
+        data       = tex_data,
+    })
+
     // Step 7: Draw loop
     running := true
     for running {
@@ -158,6 +177,7 @@ main :: proc() {
         cmd_begin_frame({renderer_id})
 
         cmd_bind_pipeline({renderer_id, pipeline})
+        cmd_bind_texture({renderer_id, texture, 0})
 
         cmd_draw_simple({renderer_id, vertex_buffer, 0, 0, .Triangle, 0, len(vertices)})
 
@@ -167,6 +187,7 @@ main :: proc() {
     }
 
     // Step 8: Cleanup
+    destroy_texture(renderer_id, texture)
     destroy_buffer(renderer_id, vertex_buffer)
     destroy_buffer(renderer_id, index_buffer)
     destroy_pipeline(renderer_id, pipeline)
@@ -206,6 +227,7 @@ init_renderer :: proc(window: Window_Provider) -> Renderer_ID {
 Renderer_ID :: distinct int
 Pipeline_ID :: distinct uint
 Buffer_ID :: distinct uint
+Texture_ID :: distinct uint
 
 Buffer_Type :: enum {
     Vertex,
@@ -238,6 +260,39 @@ Vertex_Step_Rate :: enum {
 Buffer_Access :: enum {
     Static,
     Dynamic,
+}
+
+// Texture types
+Texture_Format :: enum {
+    RGBA8,
+    BGRA8,
+    R8,
+    RG8,
+    RGBA16F,
+    RGBA32F,
+}
+
+Texture_Filter :: enum {
+    Nearest,
+    Linear,
+}
+
+Texture_Wrap :: enum {
+    Repeat,
+    ClampToEdge,
+    MirrorRepeat,
+}
+
+Texture_Desc :: struct {
+    width: int,
+    height: int,
+    format: Texture_Format,
+    min_filter: Texture_Filter,
+    mag_filter: Texture_Filter,
+    wrap_s: Texture_Wrap,
+    wrap_t: Texture_Wrap,
+    data: rawptr,          // Pixel data (can be nil for empty texture)
+    bytes_per_row: int,    // 0 = auto-calculate
 }
 
 Pipeline_Desc :: struct {
@@ -301,6 +356,7 @@ Window_Provider :: struct {
 Render_Command :: union {
     Render_Command_Draw_Simple,
     Render_Command_Bind_Pipeline,
+    Render_Command_Bind_Texture,
     Render_Command_Begin_Frame,
     Render_Command_End_Frame,
 }
@@ -371,8 +427,40 @@ destroy_buffer :: proc(id: Renderer_ID, buffer: Buffer_ID) {
     RENDERER_API.destroy_buffer(id, buffer)
 }
 
-// Shader
+// Texture
+create_texture :: proc(id: Renderer_ID, desc: Texture_Desc) -> Texture_ID {
+    return RENDERER_API.create_texture(id, desc)
+}
 
+import stbi "vendor:stb/image"
+load_tex :: proc(filepath: string) -> (data: rawptr, width: int, height: int) {
+    w, h, c: i32
+
+    pixels := stbi.load(strings.clone_to_cstring(filepath, context.temp_allocator), &w, &h, &c, 4)
+    assert(pixels != nil, fmt.tprintf("Can't load texture from: %v", filepath))
+    defer stbi.image_free(pixels)
+
+    width = int(w)
+    height = int(h)
+    data = pixels
+
+    return
+}
+
+destroy_texture :: proc(id: Renderer_ID, texture: Texture_ID) {
+    RENDERER_API.destroy_texture(id, texture)
+}
+
+Render_Command_Bind_Texture :: struct {
+    id: Renderer_ID,
+    texture_id: Texture_ID,
+    slot: uint,
+}
+
+// TODO seperate sampler? Currently binds texture and sampler to same slot
+cmd_bind_texture :: proc(cmd: Render_Command_Bind_Texture) {
+    insert_render_command(cmd)
+}
 
 // Drawing
 Index_Type :: enum {
