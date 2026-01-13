@@ -317,6 +317,7 @@ Vertex_Format :: enum {
     Float2,
     Float3,
     Float4,
+    UByte4,
 }
 
 Vertex_Attribute :: struct {

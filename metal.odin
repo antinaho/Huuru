@@ -245,6 +245,7 @@ metal_vertex_format_to_mtl := [Vertex_Format]MTL.VertexFormat {
     .Float2 = .Float2,
     .Float3 = .Float3,
     .Float4 = .Float4,
+    .UByte4 = .UChar4,
 }
 
 metal_create_pipeline :: proc(id: Renderer_ID, desc: Pipeline_Desc) -> Pipeline_ID {
