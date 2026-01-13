@@ -170,34 +170,7 @@ main :: proc() {
     })
     stbi.image_free(cast([^]byte)tex_data)
 
-    // Step 6c: Create batch index buffer (reusable for all sprite batches)
-    batch_indices := generate_batch_indices(MAX_SPRITES)
-    defer delete(batch_indices)
-    
-    batch_index_buffer := create_buffer(
-        renderer_id,
-        raw_data(batch_indices),
-        len(batch_indices) * size_of(u32),
-        .Index,
-        .Static,
-    )
-
-    // Step 6d: Create batch vertex buffer (dynamic, updated each frame)
-    batch_vertex_buffer := create_buffer_zeros(
-        renderer_id,
-        MAX_SPRITES * 4 * size_of(Sprite_Vertex),
-        .Vertex,
-        .Dynamic,
-    )
-
-    // Initialize a sprite batch
-    sprite_batch := Sprite_Batch {
-        rid           = renderer_id,
-        vertex_buffer = batch_vertex_buffer,
-        index_buffer  = batch_index_buffer,
-        texture = texture,
-        texture_slot  = 0,
-    }
+    sprite_batch := sprite_batch_init(renderer_id, texture, 0)
 
     // Step 7: Draw loop
     running := true
@@ -215,18 +188,17 @@ main :: proc() {
         // Draw a grid of sprites
         for y in 0..<4 {
             for x in 0..<4 {
-                draw_batched(&sprite_batch, Draw_Batched{
+                draw_batched(sprite_batch, Draw_Batched{
                     texture  = texture,
                     position = {f32(x) * 100 + 50, f32(y) * 100 + 50},
                     size     = {64, 64},
-                    uv_rect  = full_uv,
                     color    = {255, 255, 255, 255},
                 })
             }
         }
 
         // Example: Draw with different tint colors
-        draw_batched(&sprite_batch, Draw_Batched{
+        draw_batched(sprite_batch, Draw_Batched{
             texture  = texture,
             position = {500, 100},
             size     = {128, 128},
@@ -234,27 +206,24 @@ main :: proc() {
             color    = {255, 100, 100, 255},  // Red tint
         })
 
-        draw_batched(&sprite_batch, Draw_Batched{
+        draw_batched(sprite_batch, Draw_Batched{
             texture  = texture,
             position = {500, 250},
             size     = {128, 128},
-            uv_rect  = full_uv,
             color    = {100, 255, 100, 255},  // Green tint
         })
 
         // Example: Using UV rect for sprite sheet (assuming 2x2 atlas)
         // Top-left quadrant of texture
-        atlas_uv := UV_Rect{ min = {0, 0}, max = {0.5, 0.5} }
-        draw_batched(&sprite_batch, Draw_Batched{
+        draw_batched(sprite_batch, Draw_Batched{
             texture  = texture,
             position = {500, 400},
             size     = {96, 96},
-            uv_rect  = atlas_uv,
             color    = {255, 255, 255, 255},
         })
 
         // Flush remaining sprites in batch
-        flush(&sprite_batch)
+        flush(sprite_batch)
 
         cmd_end_frame({renderer_id})
 
@@ -266,8 +235,6 @@ main :: proc() {
     destroy_texture(renderer_id, texture)
     destroy_buffer(renderer_id, vertex_buffer)
     destroy_buffer(renderer_id, index_buffer)
-    destroy_buffer(renderer_id, batch_vertex_buffer)
-    destroy_buffer(renderer_id, batch_index_buffer)
     destroy_pipeline(renderer_id, pipeline)
 
     destroy()
@@ -609,25 +576,25 @@ draw_batched :: proc(batch: ^Sprite_Batch, cmd: Draw_Batched) {
     // TODO MVP matrix
     v1 := Sprite_Vertex {
         position = cmd.position,
-        uvs = cmd.uv_rect.min,
+        uv = {0, 0},
         color = cmd.color,
     }
 
     v2 := Sprite_Vertex {
         position = cmd.position + {cmd.size.x, 0},
-        uvs = {cmd.uv_rect.max.x, cmd.uv_rect.min.y},
+        uv = {1, 0},
         color = cmd.color,
     }
 
     v3 := Sprite_Vertex {
         position = cmd.position + cmd.size,
-        uvs = cmd.uv_rect.max,
+        uv = {1, 1},
         color = cmd.color,
     }
 
     v4 := Sprite_Vertex {
         position = cmd.position + {0, cmd.size.y},
-        uvs = {cmd.uv_rect.min.x, cmd.uv_rect.max.y},
+        uv = {0, 1},
         color = cmd.color,
     }
 
@@ -814,39 +781,43 @@ UV_Rect :: struct {
 
 Sprite_Vertex :: struct {
     position: Vector2,
-    uvs:      Vector2,
+    uv:      Vector2,
     color:    Color,
 }
 
 MAX_SPRITES :: 256
 Sprite_Batch :: struct {
-    rid:           Renderer_ID,
     vertices:      [MAX_SPRITES * 4]Sprite_Vertex,
-    vertex_count:  int,
     vertex_buffer: Buffer_ID,
     index_buffer:  Buffer_ID,
+    
+    vertex_count:  int,
     texture:       Texture_ID,
     texture_slot:  uint,
+    rid:           Renderer_ID,
 }
 
-UI_Batcher :: distinct Sprite_Batch
-Game_Batcher :: distinct Sprite_Batch
-
-// Generate quad indices for batching. Call once at startup.
-// Pattern: 0,1,2, 2,3,0 for each quad (assuming vertices are: top-left, top-right, bottom-right, bottom-left)
-generate_batch_indices :: proc(max_sprites: int, allocator := context.allocator) -> []u32 {
-    indices := make([]u32, max_sprites * 6, allocator)
+import "core:slice"
+sprite_batch_init :: proc(renderer_id: Renderer_ID, texture_id: Texture_ID, texture_slot: uint) -> ^Sprite_Batch {
+    batch := new(Sprite_Batch)
     
-    for i in 0..<max_sprites {
-        base := u32(i * 4)
-        idx := i * 6
-        indices[idx + 0] = base + 0  // top-left
-        indices[idx + 1] = base + 1  // top-right
-        indices[idx + 2] = base + 2  // bottom-right
-        indices[idx + 3] = base + 2  // bottom-right
-        indices[idx + 4] = base + 3  // bottom-left
-        indices[idx + 5] = base + 0  // top-left
+    indices: [6 * MAX_SPRITES]u32
+    for i in 0..<MAX_SPRITES {
+        base := i * 4
+        indices[i*6 + 0] = u32(base + 0)
+        indices[i*6 + 1] = u32(base + 1)
+        indices[i*6 + 2] = u32(base + 2)
+        indices[i*6 + 3] = u32(base + 2)
+        indices[i*6 + 4] = u32(base + 3)
+        indices[i*6 + 5] = u32(base + 0)
     }
-    
-    return indices
+
+    data := slice.clone(indices[:])
+    batch.vertex_buffer = create_buffer_zeros(renderer_id, MAX_SPRITES * 4 * size_of(Sprite_Vertex), .Vertex, .Dynamic)
+    batch.index_buffer = create_buffer(renderer_id, raw_data(data[:]), len(indices) * size_of(u32), .Index, .Static)
+
+    batch.texture = texture_id
+    batch.texture_slot = texture_slot
+
+    return batch
 }
