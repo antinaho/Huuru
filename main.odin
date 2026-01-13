@@ -25,37 +25,23 @@ when RENDERER_CHOISE == "" {
 RENDERER_API :: DEFAULT_RENDERER_API
 
 Renderer_API :: struct {
-
-    // Initialization
     state_size: proc() -> int,
-
-    // Per frame
-
     init: proc(window: Window_Provider) -> Renderer_ID,
-    begin_frame: proc(id: Renderer_ID),
-    end_frame: proc(id: Renderer_ID),
-
-    // Pipeline
     create_pipeline: proc(id: Renderer_ID, desc: Pipeline_Desc) -> Pipeline_ID,
     destroy_pipeline: proc(id: Renderer_ID, pipeline: Pipeline_ID),
-    bind_pipeline: proc(id: Renderer_ID, pipeline: Pipeline_ID),
-
-    // Buffers
     create_buffer: proc(id: Renderer_ID, data: rawptr, size: int, type: Buffer_Type, access: Buffer_Access) -> Buffer_ID,
     create_buffer_zeros: proc(id: Renderer_ID, length: int, type: Buffer_Type, access: Buffer_Access) -> Buffer_ID,
-    push_buffer: proc(id: Renderer_ID, bid: Buffer_ID, data: rawptr, offset: uint, lenght: int, access: Buffer_Access),
     destroy_buffer: proc(id: Renderer_ID, buffer: Buffer_ID),
-
-    // Textures
     create_texture: proc(id: Renderer_ID, desc: Texture_Desc) -> Texture_ID,
     destroy_texture: proc(id: Renderer_ID, texture: Texture_ID),
+    // Per frame
+    begin_frame: proc(id: Renderer_ID),
+    end_frame: proc(id: Renderer_ID),
+    bind_pipeline: proc(id: Renderer_ID, pipeline: Pipeline_ID),
+    push_buffer: proc(id: Renderer_ID, bid: Buffer_ID, data: rawptr, offset: uint, lenght: int, access: Buffer_Access),
     bind_texture: proc(id: Renderer_ID, texture: Texture_ID, slot: uint),
-
-    // Drawing
     draw_simple: proc(renderer_id: Renderer_ID, buffer_id: Buffer_ID, buffer_offset: uint, buffer_index: uint, type: Primitive_Type, vertex_start: uint, vertex_count: uint),
     draw_instanced: proc(id: Renderer_ID, vertex_buffer: Buffer_ID, index_count, offset, instance_count: uint, index_type: Index_Type, primitive: Primitive_Type),
-
-    //
     present: proc(),
 }
 
@@ -193,36 +179,14 @@ main :: proc() {
                 draw_batched(sprite_batch, Draw_Batched{
                     texture  = texture,
                     position = {f32(x) * 100 + 50, f32(y) * 100 + 50},
+                    uv_rect = full_uv,
                     size     = {64, 64},
                     color    = {255, 255, 255, 255},
                 })
             }
         }
 
-        // Example: Draw with different tint colors
-        draw_batched(sprite_batch, Draw_Batched{
-            texture  = texture,
-            position = {500, 100},
-            size     = {128, 128},
-            uv_rect  = full_uv,
-            color    = {255, 100, 100, 255},  // Red tint
-        })
-
-        draw_batched(sprite_batch, Draw_Batched{
-            texture  = texture,
-            position = {500, 250},
-            size     = {128, 128},
-            color    = {100, 255, 100, 255},  // Green tint
-        })
-
-        // Example: Using UV rect for sprite sheet (assuming 2x2 atlas)
-        // Top-left quadrant of texture
-        draw_batched(sprite_batch, Draw_Batched{
-            texture  = texture,
-            position = {500, 400},
-            size     = {96, 96},
-            color    = {255, 255, 255, 255},
-        })
+        
 
         // Flush remaining sprites in batch
         flush(sprite_batch)
@@ -816,11 +780,13 @@ sprite_batch_init :: proc(renderer_id: Renderer_ID, texture_id: Texture_ID, text
 
     batch.texture = texture_id
     batch.texture_slot = texture_slot
+    batch.rid = renderer_id
 
     return batch
 }
 
 
+// Blending
 
 Blend_Factor :: enum {
     Zero,
@@ -853,12 +819,11 @@ Blend_Descriptor :: struct {
     alpha_op: Blend_Operation,
 }
 
-
-opaque_blend :: Blend_Descriptor{
+OpaqueBlend :: Blend_Descriptor{
     enabled = false,
 }
 
-alpha_blend :: Blend_Descriptor{
+AlphaBlend :: Blend_Descriptor{
     enabled = true,
     
     // RGB: src.rgb * src.a + dst.rgb * (1 - src.a)
