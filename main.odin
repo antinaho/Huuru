@@ -576,25 +576,25 @@ draw_batched :: proc(batch: ^Sprite_Batch, cmd: Draw_Batched) {
     // TODO MVP matrix
     v1 := Sprite_Vertex {
         position = cmd.position,
-        uv = {0, 0},
+        uv = cmd.uv_rect.min,
         color = cmd.color,
     }
 
     v2 := Sprite_Vertex {
         position = cmd.position + {cmd.size.x, 0},
-        uv = {1, 0},
+        uv = {cmd.uv_rect.max.x, cmd.uv_rect.min.y},
         color = cmd.color,
     }
 
     v3 := Sprite_Vertex {
         position = cmd.position + cmd.size,
-        uv = {1, 1},
+        uv = cmd.uv_rect.max,
         color = cmd.color,
     }
 
     v4 := Sprite_Vertex {
         position = cmd.position + {0, cmd.size.y},
-        uv = {0, 1},
+        uv = {cmd.uv_rect.min.x, cmd.uv_rect.max.y},
         color = cmd.color,
     }
 
@@ -770,13 +770,12 @@ read_section :: proc(reader: ^bufio.Reader, start: string, end: byte) -> (sectio
 
     return
 }
-
 //
 
 Vector2 :: [2]f32
 UV_Rect :: struct {
-    min: Vector2,  // top-left UV
-    max: Vector2,  // bottom-right UV
+    min: Vector2,  // bottom-left UV
+    max: Vector2,  // top-right UV
 }
 
 Sprite_Vertex :: struct {
