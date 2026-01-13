@@ -3,6 +3,8 @@ package huuru
 import "base:runtime"
 import "core:fmt"
 import "core:log"
+import "core:slice"
+import "core:mem"
 
 RENDERER_CHOISE :: #config(RENDERER, "")
 
@@ -345,6 +347,7 @@ Pipeline_Desc :: struct {
     type: Pipeline_Desc_Type,
     layouts: []Vertex_Layout,
     attributes: []Vertex_Attribute,
+    blend: Blend_Descriptor,
 }
 
 Pipeline_Desc_Type :: union {
@@ -356,7 +359,6 @@ Pipeline_Desc_Metal :: struct {
     vertex_entry  : string,
     fragment_entry: string,
 }
-
 
 Renderer_State_Header :: struct {
     is_alive: bool,
@@ -632,6 +634,7 @@ flush :: proc(batch: ^Sprite_Batch) {
 
 
 
+Vector2 :: [2]f32
 Color :: [4]u8
 
 // Shader
@@ -673,7 +676,6 @@ pool_free_all :: proc(p: ^Pool_Arena) {
     }
 }
 
-import "core:mem"
 pool_alloc :: proc(p: ^Pool_Arena) -> rawptr {
     node := p.head
 
@@ -712,11 +714,9 @@ Shader :: struct {
 
 ShaderLanguage :: enum {
     SPIRV,      // Vulkan
-    MSL,        // Metal Shading Language
+    MSL,        // Metal
     HLSL,       // Direct3D
 }
-
-file_section :: string
 
 load_shader :: proc(filepath, vertex_identifier, fragment_identifier: string, vertex_end, fragment_end: byte) -> (vertex, fragment: string, err: os.Error) {
     
@@ -751,7 +751,7 @@ close_file_stream :: proc(handle: os.Handle, reader: ^bufio.Reader) {
     bufio.reader_destroy(reader)
 }
 
-read_section :: proc(reader: ^bufio.Reader, start: string, end: byte) -> (section: file_section, err: os.Error) {
+read_section :: proc(reader: ^bufio.Reader, start: string, end: byte) -> (section: string, err: os.Error) {
     for {
         line, read_err := bufio.reader_read_string(reader, '\n', context.temp_allocator)
         if read_err != nil {
@@ -772,7 +772,6 @@ read_section :: proc(reader: ^bufio.Reader, start: string, end: byte) -> (sectio
 }
 //
 
-Vector2 :: [2]f32
 UV_Rect :: struct {
     min: Vector2,  // bottom-left UV
     max: Vector2,  // top-right UV
@@ -784,7 +783,7 @@ Sprite_Vertex :: struct {
     color:    Color,
 }
 
-MAX_SPRITES :: 256
+MAX_SPRITES :: 4_096
 Sprite_Batch :: struct {
     vertices:      [MAX_SPRITES * 4]Sprite_Vertex,
     vertex_buffer: Buffer_ID,
@@ -796,7 +795,7 @@ Sprite_Batch :: struct {
     rid:           Renderer_ID,
 }
 
-import "core:slice"
+
 sprite_batch_init :: proc(renderer_id: Renderer_ID, texture_id: Texture_ID, texture_slot: uint) -> ^Sprite_Batch {
     batch := new(Sprite_Batch)
     
@@ -819,4 +818,56 @@ sprite_batch_init :: proc(renderer_id: Renderer_ID, texture_id: Texture_ID, text
     batch.texture_slot = texture_slot
 
     return batch
+}
+
+
+
+Blend_Factor :: enum {
+    Zero,
+    One,
+    SrcColor,
+    OneMinusSrcColor,
+    SrcAlpha,
+    OneMinusSrcAlpha,
+    DstColor,
+    OneMinusDstColor,
+    DstAlpha,
+    OneMinusDstAlpha,
+}
+
+Blend_Operation :: enum {
+    Add,
+    Subtract,
+    ReverseSubtract,
+    Min,
+    Max,
+}
+
+Blend_Descriptor :: struct {
+    enabled: bool,
+    src_color: Blend_Factor,
+    dst_color: Blend_Factor,
+    color_op: Blend_Operation,
+    src_alpha: Blend_Factor,
+    dst_alpha: Blend_Factor,
+    alpha_op: Blend_Operation,
+}
+
+
+opaque_blend :: Blend_Descriptor{
+    enabled = false,
+}
+
+alpha_blend :: Blend_Descriptor{
+    enabled = true,
+    
+    // RGB: src.rgb * src.a + dst.rgb * (1 - src.a)
+    src_color = .SrcAlpha,
+    dst_color = .OneMinusSrcAlpha,
+    color_op  = .Add,
+    
+    // Alpha: src.a * 1 + dst.a * (1 - src.a)
+    src_alpha = .One,
+    dst_alpha = .OneMinusSrcAlpha,
+    alpha_op  = .Add,
 }

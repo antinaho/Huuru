@@ -248,6 +248,27 @@ metal_vertex_format_to_mtl := [Vertex_Format]MTL.VertexFormat {
     .UByte4 = .UChar4,
 }
 
+metal_blend_factor := [Blend_Factor]MTL.BlendFactor {
+    .Zero             = .Zero,
+    .One              = .One,
+    .SrcColor         = .SourceColor,
+    .OneMinusSrcColor = .OneMinusSourceColor,
+    .SrcAlpha         = .SourceAlpha,
+    .OneMinusSrcAlpha = .OneMinusSourceAlpha,
+    .DstColor         = .DestinationColor,
+    .OneMinusDstColor = .OneMinusDestinationColor,
+    .DstAlpha         = .DestinationAlpha,
+    .OneMinusDstAlpha = .OneMinusDestinationAlpha,
+}
+
+metal_blend_operation := [Blend_Operation]MTL.BlendOperation {
+    .Add             = .Add,
+    .Subtract        = .Subtract,
+    .ReverseSubtract = .ReverseSubtract,
+    .Min             = .Min,
+    .Max             = .Max,
+}
+
 metal_create_pipeline :: proc(id: Renderer_ID, desc: Pipeline_Desc) -> Pipeline_ID {
     mtl_state := cast(^Metal_State)get_state_from_id(id)
     pipeline_id := metal_get_free_pipeline(mtl_state)
@@ -281,7 +302,23 @@ metal_create_pipeline :: proc(id: Renderer_ID, desc: Pipeline_Desc) -> Pipeline_
     pipeline_descriptor->setVertexDescriptor(vertex_descriptor)
     pipeline_descriptor->setVertexFunction(vertex_function)
     pipeline_descriptor->setFragmentFunction(fragment_function)
-    pipeline_descriptor->colorAttachments()->object(0)->setPixelFormat(.BGRA8Unorm)
+
+    color_attachment := pipeline_descriptor->colorAttachments()->object(0)
+    color_attachment->setPixelFormat(.BGRA8Unorm)
+
+    if desc.blend.enabled {
+        color_attachment->setBlendingEnabled(true)
+        color_attachment->setSourceRGBBlendFactor(metal_blend_factor[desc.blend.src_color])
+        color_attachment->setDestinationRGBBlendFactor(metal_blend_factor[desc.blend.dst_color])
+        color_attachment->setRgbBlendOperation(metal_blend_operation[desc.blend.color_op])
+        
+        color_attachment->setSourceAlphaBlendFactor(metal_blend_factor[desc.blend.src_alpha])
+        color_attachment->setDestinationAlphaBlendFactor(metal_blend_factor[desc.blend.dst_alpha])
+        color_attachment->setAlphaBlendOperation(metal_blend_operation[desc.blend.alpha_op])
+    } else {
+        color_attachment->setBlendingEnabled(false)
+    }   
+
 
     // Create pipeline state
     pipeline_state, pipeline_err := mtl_state.device->newRenderPipelineState(pipeline_descriptor)
