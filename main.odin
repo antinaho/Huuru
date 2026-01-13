@@ -40,7 +40,7 @@ Renderer_API :: struct {
 
     // Buffers
     create_buffer: proc(id: Renderer_ID, data: rawptr, size: int, type: Buffer_Type, access: Buffer_Access) -> Buffer_ID,
-    create_buffer_zeros: proc(id: Renderer_ID, length: int, type: Buffer_Type, access: Buffer_Access),
+    create_buffer_zeros: proc(id: Renderer_ID, length: int, type: Buffer_Type, access: Buffer_Access) -> Buffer_ID,
     push_buffer: proc(id: Renderer_ID, bid: Buffer_ID, data: rawptr, offset: uint, lenght: int, access: Buffer_Access),
     destroy_buffer: proc(id: Renderer_ID, buffer: Buffer_ID),
 
@@ -75,7 +75,7 @@ renderer: Renderer
 
 MAX_PIPELINES :: #config(MAX_PIPELINES, 8)
 MAX_BUFFERS   :: #config(MAX_BUFFERS, 8)
-MAX_TEXTURES  :: #config(MAX_TEXTURES, 16)
+MAX_TEXTURES  :: #config(MAX_TEXTURES, 32)
 
 main :: proc() {
     // Example: Setting up the renderer and draw loop
@@ -168,28 +168,106 @@ main :: proc() {
         wrap_t     = .Repeat,
         data       = tex_data,
     })
+    stbi.image_free(cast([^]byte)tex_data)
+
+    // Step 6c: Create batch index buffer (reusable for all sprite batches)
+    batch_indices := generate_batch_indices(MAX_SPRITES)
+    defer delete(batch_indices)
+    
+    batch_index_buffer := create_buffer(
+        renderer_id,
+        raw_data(batch_indices),
+        len(batch_indices) * size_of(u32),
+        .Index,
+        .Static,
+    )
+
+    // Step 6d: Create batch vertex buffer (dynamic, updated each frame)
+    batch_vertex_buffer := create_buffer_zeros(
+        renderer_id,
+        MAX_SPRITES * 4 * size_of(Sprite_Vertex),
+        .Vertex,
+        .Dynamic,
+    )
+
+    // Initialize a sprite batch
+    sprite_batch := Sprite_Batch {
+        rid           = renderer_id,
+        vertex_buffer = batch_vertex_buffer,
+        index_buffer  = batch_index_buffer,
+        texture = texture,
+        texture_slot  = 0,
+    }
 
     // Step 7: Draw loop
     running := true
+    frame: u32 = 0
     for running {
         renderer.render_command_c = 0
 
         cmd_begin_frame({renderer_id})
-
         cmd_bind_pipeline({renderer_id, pipeline})
-        cmd_bind_texture({renderer_id, texture, 0})
 
-        cmd_draw_simple({renderer_id, vertex_buffer, 0, 0, .Triangle, 0, len(vertices)})
+        // Example: Draw some sprites using batching
+        // Full texture UV rect
+        full_uv := UV_Rect{ min = {0, 0}, max = {1, 1} }
+        
+        // Draw a grid of sprites
+        for y in 0..<4 {
+            for x in 0..<4 {
+                draw_batched(&sprite_batch, Draw_Batched{
+                    texture  = texture,
+                    position = {f32(x) * 100 + 50, f32(y) * 100 + 50},
+                    size     = {64, 64},
+                    uv_rect  = full_uv,
+                    color    = {255, 255, 255, 255},
+                })
+            }
+        }
+
+        // Example: Draw with different tint colors
+        draw_batched(&sprite_batch, Draw_Batched{
+            texture  = texture,
+            position = {500, 100},
+            size     = {128, 128},
+            uv_rect  = full_uv,
+            color    = {255, 100, 100, 255},  // Red tint
+        })
+
+        draw_batched(&sprite_batch, Draw_Batched{
+            texture  = texture,
+            position = {500, 250},
+            size     = {128, 128},
+            uv_rect  = full_uv,
+            color    = {100, 255, 100, 255},  // Green tint
+        })
+
+        // Example: Using UV rect for sprite sheet (assuming 2x2 atlas)
+        // Top-left quadrant of texture
+        atlas_uv := UV_Rect{ min = {0, 0}, max = {0.5, 0.5} }
+        draw_batched(&sprite_batch, Draw_Batched{
+            texture  = texture,
+            position = {500, 400},
+            size     = {96, 96},
+            uv_rect  = atlas_uv,
+            color    = {255, 255, 255, 255},
+        })
+
+        // Flush remaining sprites in batch
+        flush(&sprite_batch)
 
         cmd_end_frame({renderer_id})
 
         present()
+        frame += 1
     }
 
     // Step 8: Cleanup
     destroy_texture(renderer_id, texture)
     destroy_buffer(renderer_id, vertex_buffer)
     destroy_buffer(renderer_id, index_buffer)
+    destroy_buffer(renderer_id, batch_vertex_buffer)
+    destroy_buffer(renderer_id, batch_index_buffer)
     destroy_pipeline(renderer_id, pipeline)
 
     destroy()
@@ -359,6 +437,8 @@ Render_Command :: union {
     Render_Command_Bind_Texture,
     Render_Command_Begin_Frame,
     Render_Command_End_Frame,
+
+    Render_Command_Draw_Indexed,
 }
 
 Render_Command_Begin_Frame :: struct {
@@ -410,9 +490,9 @@ create_buffer :: proc(id: Renderer_ID, data: rawptr, length: int, type: Buffer_T
     return RENDERER_API.create_buffer(id, data, length, type, access)
 }
 
-create_buffer_zeros :: proc(id: Renderer_ID, length: int, type: Buffer_Type, access: Buffer_Access) {
+create_buffer_zeros :: proc(id: Renderer_ID, length: int, type: Buffer_Type, access: Buffer_Access) -> Buffer_ID {
     assert(length > 0)
-    RENDERER_API.create_buffer_zeros(id, length, type, access)
+    return RENDERER_API.create_buffer_zeros(id, length, type, access)
 }
 
 push_buffer :: proc(id: Renderer_ID, bid: Buffer_ID, data: rawptr, offset: uint, length: int, access: Buffer_Access) {
@@ -433,12 +513,12 @@ create_texture :: proc(id: Renderer_ID, desc: Texture_Desc) -> Texture_ID {
 }
 
 import stbi "vendor:stb/image"
+// NOTE: Caller is responsible for calling stbi.image_free(data) when done
 load_tex :: proc(filepath: string) -> (data: rawptr, width: int, height: int) {
     w, h, c: i32
 
     pixels := stbi.load(strings.clone_to_cstring(filepath, context.temp_allocator), &w, &h, &c, 4)
     assert(pixels != nil, fmt.tprintf("Can't load texture from: %v", filepath))
-    defer stbi.image_free(pixels)
 
     width = int(w)
     height = int(h)
@@ -489,6 +569,100 @@ cmd_draw_simple :: proc(cmd: Render_Command_Draw_Simple) {
 draw_instanced :: proc(id: Renderer_ID, vertex_buffer: Buffer_ID, index_count, index_buffer_offset, instance_count: uint, index_type: Index_Type, primitive: Primitive_Type) {
     RENDERER_API.draw_instanced(id, vertex_buffer, index_count, index_buffer_offset, instance_count, index_type, primitive)
 }
+
+Render_Command_Draw_Indexed :: struct {
+    rid: Renderer_ID,
+    vertex_id: Buffer_ID,
+    vertex_offset: uint,
+    vertex_index: uint,
+    primitive: Primitive_Type,
+  
+    index_id: Buffer_ID,
+    index_type: Index_Type,
+    index_count: uint,
+    index_offset: uint,
+}
+
+cmd_draw_indexed :: proc(cmd: Render_Command_Draw_Indexed) {
+    insert_render_command(cmd)
+}
+
+Draw_Batched :: struct {
+    texture: Texture_ID,
+    position: Vector2,
+    size: Vector2,
+    uv_rect: UV_Rect,
+    color: Color,
+}
+
+draw_batched :: proc(batch: ^Sprite_Batch, cmd: Draw_Batched) {
+    if batch.texture != cmd.texture {
+        flush(batch)
+        batch.texture = cmd.texture
+    }
+
+    if batch.vertex_count + 4 >= len(batch.vertices) {
+        flush(batch)
+    }
+
+    // TODO MVP matrix
+    v1 := Sprite_Vertex {
+        position = cmd.position,
+        uvs = cmd.uv_rect.min,
+        color = cmd.color,
+    }
+
+    v2 := Sprite_Vertex {
+        position = cmd.position + {cmd.size.x, 0},
+        uvs = {cmd.uv_rect.max.x, cmd.uv_rect.min.y},
+        color = cmd.color,
+    }
+
+    v3 := Sprite_Vertex {
+        position = cmd.position + cmd.size,
+        uvs = cmd.uv_rect.max,
+        color = cmd.color,
+    }
+
+    v4 := Sprite_Vertex {
+        position = cmd.position + {0, cmd.size.y},
+        uvs = {cmd.uv_rect.min.x, cmd.uv_rect.max.y},
+        color = cmd.color,
+    }
+
+    batch.vertices[batch.vertex_count] = v1
+    batch.vertex_count += 1
+    batch.vertices[batch.vertex_count] = v2
+    batch.vertex_count += 1
+    batch.vertices[batch.vertex_count] = v3
+    batch.vertex_count += 1
+    batch.vertices[batch.vertex_count] = v4
+    batch.vertex_count += 1
+}
+
+flush :: proc(batch: ^Sprite_Batch) {
+    if batch.vertex_count == 0 {
+        return
+    }
+
+    push_buffer(batch.rid, batch.vertex_buffer, raw_data(batch.vertices[:]), 0, size_of(Sprite_Vertex) * batch.vertex_count, .Dynamic)
+    cmd_bind_texture({id=batch.rid, texture_id=batch.texture, slot=batch.texture_slot})
+    cmd_draw_indexed(Render_Command_Draw_Indexed{
+        rid = batch.rid,
+        vertex_id = batch.vertex_buffer,
+        index_id = batch.index_buffer,
+        primitive = .Triangle,
+        vertex_offset = 0,
+        vertex_index = 0,
+        index_offset = 0,
+        index_type = .UInt32,
+        index_count = uint(batch.vertex_count / 4) * 6
+    })
+
+    batch.vertex_count = 0
+}
+
+
 
 Color :: [4]u8
 
@@ -627,4 +801,51 @@ read_section :: proc(reader: ^bufio.Reader, start: string, end: byte) -> (sectio
     }
 
     return
+}
+
+//
+
+Vector2 :: [2]f32
+UV_Rect :: struct {
+    min: Vector2,  // top-left UV
+    max: Vector2,  // bottom-right UV
+}
+
+Sprite_Vertex :: struct {
+    position: Vector2,
+    uvs:      Vector2,
+    color:    Color,
+}
+
+MAX_SPRITES :: 256
+Sprite_Batch :: struct {
+    rid:           Renderer_ID,
+    vertices:      [MAX_SPRITES * 4]Sprite_Vertex,
+    vertex_count:  int,
+    vertex_buffer: Buffer_ID,
+    index_buffer:  Buffer_ID,
+    texture:       Texture_ID,
+    texture_slot:  uint,
+}
+
+UI_Batcher :: distinct Sprite_Batch
+Game_Batcher :: distinct Sprite_Batch
+
+// Generate quad indices for batching. Call once at startup.
+// Pattern: 0,1,2, 2,3,0 for each quad (assuming vertices are: top-left, top-right, bottom-right, bottom-left)
+generate_batch_indices :: proc(max_sprites: int, allocator := context.allocator) -> []u32 {
+    indices := make([]u32, max_sprites * 6, allocator)
+    
+    for i in 0..<max_sprites {
+        base := u32(i * 4)
+        idx := i * 6
+        indices[idx + 0] = base + 0  // top-left
+        indices[idx + 1] = base + 1  // top-right
+        indices[idx + 2] = base + 2  // bottom-right
+        indices[idx + 3] = base + 2  // bottom-right
+        indices[idx + 4] = base + 3  // bottom-left
+        indices[idx + 5] = base + 0  // top-left
+    }
+    
+    return indices
 }

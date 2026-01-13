@@ -23,7 +23,7 @@ METAL_RENDERER_API :: Renderer_API {
     bind_pipeline = metal_bind_pipeline,
     
     create_buffer = metal_create_buffer,
-    create_buffer_zeros = create_buffer_zeros,
+    create_buffer_zeros = metal_create_buffer_zeros,
     push_buffer = metal_push_buffer,
     destroy_buffer = metal_destroy_buffer,
 
@@ -133,6 +133,8 @@ metal_present :: proc() {
                 metal_bind_pipeline(cmd.id, cmd.pipeline_id)
             case Render_Command_Bind_Texture:
                 metal_bind_texture(cmd.id, cmd.texture_id, cmd.slot)
+            case Render_Command_Draw_Indexed:
+                metal_draw_indexed(cmd.rid, cmd.vertex_id, cmd.vertex_offset, cmd.vertex_index, cmd.primitive, cmd.index_count, cmd.index_type, cmd.index_id, cmd.index_offset)
         }
     }
 }
@@ -329,7 +331,7 @@ metal_get_free_buffer :: proc(mtl_state: ^Metal_State) -> Buffer_ID {
     log.panic("All buffer slots are in use!")
 }
 
-metal_create_buffer_zeros :: proc(id: Renderer_ID, length: uint, type: Buffer_Type, access: Buffer_Access) -> Buffer_ID {
+metal_create_buffer_zeros :: proc(id: Renderer_ID, length: int, type: Buffer_Type, access: Buffer_Access) -> Buffer_ID {
     mtl_state := cast(^Metal_State)get_state_from_id(id)
     buffer_id := metal_get_free_buffer(mtl_state)
 
@@ -548,7 +550,7 @@ primitive_type_to_MTL_primitive := [Primitive_Type]MTL.PrimitiveType {
 metal_draw_simple :: proc(renderer_id: Renderer_ID, buffer_id: Buffer_ID, buffer_offset: uint, buffer_index: uint, primitive: Primitive_Type, vertex_start: uint, vertex_count: uint) {
     if mtl_state.skip_frame do return
     
-    mtl_buffer := mtl_state.buffers[0].buffer
+    mtl_buffer := mtl_state.buffers[buffer_id].buffer
     mtl_state.render_encoder->setVertexBuffer(mtl_buffer, NS.UInteger(buffer_offset), NS.UInteger(buffer_index))
     mtl_state.render_encoder->drawPrimitives(
         primitive_type_to_MTL_primitive[primitive],
@@ -557,15 +559,31 @@ metal_draw_simple :: proc(renderer_id: Renderer_ID, buffer_id: Buffer_ID, buffer
     )
 }
 
-metal_draw_instanced :: proc(id: Renderer_ID, bid: Buffer_ID, index_count, index_buffer_offset, instance_count: uint, index_type: Index_Type, primitive: Primitive_Type) {
+metal_draw_indexed :: proc(id: Renderer_ID, vertex_buffer_id: Buffer_ID, buffer_offset: uint, buffer_index: uint, primitive: Primitive_Type, index_count: uint, index_type: Index_Type, index_buffer: Buffer_ID, index_buffer_offset: uint) {
+    if mtl_state.skip_frame do return
+
+    mtl_vertex_buffer := mtl_state.buffers[vertex_buffer_id].buffer
+    mtl_state.render_encoder->setVertexBuffer(mtl_vertex_buffer, NS.UInteger(buffer_offset), NS.UInteger(buffer_index))
+    mtl_index_buffer := mtl_state.buffers[index_buffer].buffer
+    
+    mtl_state.render_encoder->drawIndexedPrimitives(
+        primitive_type_to_MTL_primitive[primitive],
+        NS.UInteger(index_count),
+        index_type_to_MTL_type[index_type],
+        mtl_index_buffer,
+        NS.UInteger(index_buffer_offset),
+    )
+}
+
+metal_draw_instanced :: proc(id: Renderer_ID, buffer_id: Buffer_ID, index_count, index_buffer_offset, instance_count: uint, index_type: Index_Type, primitive: Primitive_Type) {
     assert(mtl_state != nil, "State not set")
     if mtl_state.skip_frame do return
     
-    assert(int(bid) < MAX_BUFFERS && int(bid) >= 0, "Invalid Buffer_ID")
-    assert(mtl_state.buffers[bid].is_alive, "Cannot draw with destroyed buffer")
-    assert(mtl_state.buffers[bid].type == .Vertex, "Buffer must be a vertex buffer")
+    assert(int(buffer_id) < MAX_BUFFERS && int(buffer_id) >= 0, "Invalid Buffer_ID")
+    assert(mtl_state.buffers[buffer_id].is_alive, "Cannot draw with destroyed buffer")
+    assert(mtl_state.buffers[buffer_id].type == .Vertex, "Buffer must be a vertex buffer")
 
-    buffer := mtl_state.buffers[bid].buffer
+    buffer := mtl_state.buffers[buffer_id].buffer
     
     mtl_state.render_encoder->drawIndexedPrimitivesWithInstanceCount(
         primitive_type_to_MTL_primitive[primitive],
