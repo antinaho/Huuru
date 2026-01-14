@@ -147,8 +147,19 @@ main :: proc() {
     // Step 7: Draw loop
     running := true
     frame: u32 = 0
+    camera := Camera {
+        aspect_ratio = 16.0 / 9.0,
+        zoom = 600,
+    }
     for running {
         renderer.render_command_c = 0
+
+        // set camera aspect
+        // view := mat4_view(camera.position, camera.position + VECTOR3_FORWARD, VECTOR3_UP)
+        // proj := mat4_ortho_fixed_height(camera.zoom, camera.aspect_ratio)
+        // uniforms := Uniforms{ view_projection = proj * view }
+        // push_buffer(renderer_id, uniform_buffer, &uniforms, 0, size_of(Uniforms), .Dynamic)
+
 
         cmd_begin_frame({renderer_id})
         cmd_bind_pipeline({renderer_id, pipeline})
@@ -162,9 +173,9 @@ main :: proc() {
             for x in 0..<4 {
                 draw_batched(sprite_batch, Draw_Batched{
                     texture  = texture,
-                    position = {f32(x) * 100 + 50, f32(y) * 100 + 50},
+                    position = {f32(x) * 100 + 50, f32(y) * 100 + 50, 0},
                     uv_rect = full_uv,
-                    size     = {64, 64},
+                    scale     = {64, 64, 1},
                     color    = {255, 255, 255, 255},
                 })
             }
@@ -500,8 +511,9 @@ cmd_draw_indexed :: proc(cmd: Render_Command_Draw_Indexed) {
 
 Draw_Batched :: struct {
     texture: Texture_ID,
-    position: Vector2,
-    size: Vector2,
+    position: Vector3,
+    rotation: Vector3,
+    scale: Vector3,
     uv_rect: UV_Rect,
     color: Color,
 }
@@ -516,27 +528,45 @@ draw_batched :: proc(batch: ^Sprite_Batch, cmd: Draw_Batched) {
         flush(batch)
     }
 
-    // TODO MVP matrix
+    // Build model matrix: Translation * Rotation * Scale
+    model := mat4_model(cmd.position, cmd.rotation, cmd.scale)
+
+    // Define local-space quad vertices (unit quad centered at origin)
+    // These will be transformed by the model matrix to world space
+    local_positions := [4]Vector4{
+        {-0.5, -0.5, 0, 1},  // bottom-left
+        { 0.5, -0.5, 0, 1},  // bottom-right
+        { 0.5,  0.5, 0, 1},  // top-right
+        {-0.5,  0.5, 0, 1},  // top-left
+    }
+
+    // Transform each vertex by model matrix to get world-space positions
+    world_positions: [4]Vector3
+    for i in 0..<4 {
+        transformed := model * local_positions[i]
+        world_positions[i] = {transformed.x, transformed.y, transformed.z}
+    }
+
     v1 := Sprite_Vertex {
-        position = cmd.position,
+        position = world_positions[0],
         uv = cmd.uv_rect.min,
         color = cmd.color,
     }
 
     v2 := Sprite_Vertex {
-        position = cmd.position + {cmd.size.x, 0},
+        position = world_positions[1],
         uv = {cmd.uv_rect.max.x, cmd.uv_rect.min.y},
         color = cmd.color,
     }
 
     v3 := Sprite_Vertex {
-        position = cmd.position + cmd.size,
+        position = world_positions[2],
         uv = cmd.uv_rect.max,
         color = cmd.color,
     }
 
     v4 := Sprite_Vertex {
-        position = cmd.position + {0, cmd.size.y},
+        position = world_positions[3],
         uv = {cmd.uv_rect.min.x, cmd.uv_rect.max.y},
         color = cmd.color,
     }
@@ -573,13 +603,17 @@ flush :: proc(batch: ^Sprite_Batch) {
     batch.vertex_count = 0
 }
 
-
-
 Vector2 :: [2]f32
+Vector3 :: [3]f32
+Vector4 :: [4]f32
+
+VECTOR3_RIGHT ::   Vector3{1, 0, 0}
+VECTOR3_UP ::      Vector3{0, 1, 0}
+VECTOR3_FORWARD :: Vector3 {0, 0, -1}
+
 Color :: [4]u8
 
 BACKGROUND_COLOR :: Color {185, 105, 80, 255}
-
 
 // Shader
 
@@ -716,14 +750,20 @@ read_section :: proc(reader: ^bufio.Reader, start: string, end: byte) -> (sectio
 }
 //
 
+Uniforms :: struct {
+    view_projection: matrix[4,4]f32,
+}
+
+
 UV_Rect :: struct {
     min: Vector2,  // bottom-left UV
     max: Vector2,  // top-right UV
 }
 
 Sprite_Vertex :: struct {
-    position: Vector2,
-    uv:      Vector2,
+    position: Vector3,
+    _:        f32,
+    uv:       Vector2,
     color:    Color,
 }
 
@@ -814,4 +854,140 @@ AlphaBlend :: Blend_Descriptor{
     src_alpha = .One,
     dst_alpha = .OneMinusSrcAlpha,
     alpha_op  = .Add,
+}
+
+
+Camera :: struct {
+    position:     Vector3,
+    rotation:     Vector3,
+    aspect_ratio: f32,
+    zoom:         f32,
+    near_z:       f32,
+    far_z:        f32,
+}
+
+
+
+
+
+
+
+
+
+// MATH
+
+import "core:math/linalg"
+import "core:math"
+
+// TRANSLATE
+mat4_translate_vector3 :: proc(v: Vector3) -> matrix[4, 4]f32 {
+    return {
+        1, 0, 0, v.x,
+        0, 1, 0, v.y,
+        0, 0, 1, v.z,
+        0, 0, 0, 1
+    }
+}
+
+// ROTATE
+mat4_rotate_x :: proc "contextless" (angle_radians: f32) -> matrix[4, 4]f32 {
+    c := math.cos(angle_radians)
+    s := math.sin(angle_radians)
+    return {
+        1,  0, 0, 0,
+        0,  c, -s, 0,
+        0,  s, c, 0,
+        0, 0, 0, 1
+    }
+}
+
+mat4_rotate_y :: proc "contextless" (angle_radians: f32) -> matrix[4, 4]f32 {
+    c := math.cos(angle_radians)
+    s := math.sin(angle_radians)
+    return {
+        c, 0, s, 0,
+        0, 1,  0, 0, 
+        -s, 0,  c, 0,
+        0, 0, 0, 1
+    }   
+}
+
+mat4_rotate_z :: proc "contextless" (angle_radians: f32) -> matrix[4, 4]f32 {
+    c := math.cos(angle_radians)
+    s := math.sin(angle_radians)
+    return {
+        c,  -s, 0, 0,
+        s,  c, 0, 0,
+        0,  0, 1, 0,
+        0, 0, 0, 1
+    }
+}
+
+mat4_rotate_euler :: proc "contextless" (radians_rotation: Vector3) -> matrix[4, 4]f32 {
+    Rx := mat4_rotate_x(radians_rotation.x)
+    Ry := mat4_rotate_y(radians_rotation.y)
+    Rz := mat4_rotate_z(radians_rotation.z)
+
+    return Rz * Ry * Rx
+}
+
+// SCALE
+mat4_scale_vector3 :: proc(v: Vector3) -> matrix[4, 4]f32 {
+    return {
+        v.x, 0,   0,   0,
+        0,   v.y, 0,   0,
+        0,   0,   v.z, 0,
+        0,   0,   0,   1
+    }
+}
+
+mat4_scale_uniform :: proc(s: f32) -> matrix[4, 4]f32 {
+    return mat4_scale_vector3({s, s, s})
+}
+
+// MODEL
+mat4_model :: proc(position, radian_rotation, scale: Vector3) -> matrix[4, 4]f32 {
+    T := mat4_translate_vector3(position)
+    R := mat4_rotate_euler(radian_rotation)
+    S := mat4_scale_vector3(scale)
+
+    return T * R * S
+}
+
+// VIEW
+mat4_view :: proc(eye, target, up: Vector3) -> matrix[4,4]f32 {
+    forward := linalg.normalize(target - eye)  
+    right := linalg.normalize(linalg.cross(forward, up))  
+    up := linalg.cross(right, forward) 
+    
+    return {
+        right.x,     right.y,     right.z,   -linalg.dot(right, eye),
+        up.x,        up.y,        up.z,      -linalg.dot(up, eye),
+        -forward.x, -forward.y,  -forward.z,  linalg.dot(forward, eye),
+        0,           0,           0,          1,
+    }
+}
+
+// ORTHOGRAPHIC
+
+mat4_ortho :: proc(left, right, bottom, top, near, far: f32) -> matrix[4, 4]f32 {
+    rl := right - left
+    tb := top - bottom
+    nf := near - far 
+
+    return {
+        2/rl,   0,      0,      -(right+left)/rl,
+        0,      2/tb,   0,      -(top+bottom)/tb,
+        0,      0,      1/nf,    near/nf,
+        0,      0,      0,      1,
+    }
+}
+
+mat4_ortho_fixed_height :: proc(height: f32, aspect: f32, near: f32 = 0, far: f32 = 1) -> matrix[4,4]f32 {
+    width := height * aspect
+    left   := -width * 0.5
+    right  :=  width * 0.5
+    bottom := -height * 0.5
+    top    :=  height * 0.5
+    return mat4_ortho(left, right, bottom, top, near, far)
 }

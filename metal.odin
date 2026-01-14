@@ -188,10 +188,10 @@ metal_begin_frame :: proc(id: Renderer_ID){
 
     color_to_mtl_color :: proc(color: Color) -> MTL.ClearColor {
         return {
-            f64(color.r / 255.0),
-            f64(color.g / 255.0),
-            f64(color.b / 255.0),
-            f64(color.a / 255.0),
+            f64(color.r) / 255.0,
+            f64(color.g) / 255.0,
+            f64(color.b) / 255.0,
+            f64(color.a) / 255.0,
         }
     }
 
@@ -317,7 +317,6 @@ metal_create_pipeline :: proc(id: Renderer_ID, desc: Pipeline_Desc) -> Pipeline_
     } else {
         color_attachment->setBlendingEnabled(false)
     }   
-
 
     // Create pipeline state
     pipeline_state, pipeline_err := mtl_state.device->newRenderPipelineState(pipeline_descriptor)
@@ -627,3 +626,4 @@ metal_draw_instanced :: proc(id: Renderer_ID, buffer_id: Buffer_ID, index_count,
         NS.UInteger(instance_count)
     )
 }
+
