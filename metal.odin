@@ -375,8 +375,6 @@ metal_create_buffer_zeros :: proc(id: Renderer_ID, length: int, type: Buffer_Typ
 
     storage_mode: MTL.ResourceOptions
     switch access {
-        case .Static:
-            storage_mode = {.StorageModePrivate}
         case .Dynamic:
             storage_mode = {.StorageModeManaged}
     }
@@ -400,8 +398,6 @@ metal_create_buffer :: proc(id: Renderer_ID, data: rawptr, length: int, type: Bu
 
     storage_mode: MTL.ResourceOptions
     switch access {
-        case .Static:
-            storage_mode = {.StorageModePrivate}
         case .Dynamic:
             storage_mode = {.StorageModeManaged}
     }

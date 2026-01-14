@@ -128,22 +128,6 @@ main :: proc() {
     
     indices := []u16{ 0, 1, 2 }
 
-    vertex_buffer := create_buffer(
-        renderer_id,
-        raw_data(vertices),
-        len(vertices) * size_of(Vertex),
-        .Vertex,
-        .Static,
-    )
-
-    index_buffer := create_buffer(
-        renderer_id,
-        raw_data(indices),
-        len(indices) * size_of(u16),
-        .Index,
-        .Static,
-    )
-
     // Step 6b: Load and create texture
     tex_data, tex_width, tex_height := load_tex("assets/texture.png")
     texture := create_texture(renderer_id, Texture_Desc{
@@ -199,8 +183,6 @@ main :: proc() {
 
     // Step 8: Cleanup
     destroy_texture(renderer_id, texture)
-    destroy_buffer(renderer_id, vertex_buffer)
-    destroy_buffer(renderer_id, index_buffer)
     destroy_pipeline(renderer_id, pipeline)
 
     destroy()
@@ -270,7 +252,6 @@ Vertex_Step_Rate :: enum {
 }
 
 Buffer_Access :: enum {
-    Static,
     Dynamic,
 }
 
@@ -775,7 +756,7 @@ sprite_batch_init :: proc(renderer_id: Renderer_ID, texture_id: Texture_ID, text
     }
 
     batch.vertex_buffer = create_buffer_zeros(renderer_id, MAX_SPRITES * 4 * size_of(Sprite_Vertex), .Vertex, .Dynamic)
-    batch.index_buffer = create_buffer(renderer_id, raw_data(indices[:]), len(indices) * size_of(u32), .Index, .Static)
+    batch.index_buffer = create_buffer(renderer_id, raw_data(indices[:]), len(indices) * size_of(u32), .Index, .Dynamic)
 
     batch.texture = texture_id
     batch.texture_slot = texture_slot
