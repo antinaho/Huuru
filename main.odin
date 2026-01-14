@@ -185,7 +185,7 @@ main :: proc() {
 init :: proc(renderers: int = 1) {
     assert(renderers >= 1, "Need at least 1 renderer!")
 
-    backing := make([]byte, 16 * mem.Kilobyte)
+    backing := make([]byte, 1 * mem.Megabyte)
     mem.arena_init(&renderer.arena, backing)
     arena_allocator := mem.arena_allocator(&renderer.arena)
 

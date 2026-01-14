@@ -773,6 +773,7 @@ metal_create_sampler :: proc(id: Renderer_ID, desc: Sampler_Desc) -> Sampler_ID 
     sampler := mtl_state.device->newSamplerState(sampler_desc)
     assert(sampler != nil, "Failed to create Metal sampler state")
 
+    mtl_state.samplers[sampler_id].is_alive = true
     mtl_state.samplers[sampler_id].sampler = sampler
 
     return sampler_id
