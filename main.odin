@@ -3,10 +3,21 @@ package huuru
 import "base:runtime"
 import "core:fmt"
 import "core:log"
-import "core:slice"
 import "core:mem"
 
 RENDERER_CHOISE :: #config(RENDERER, "")
+
+Vector2 :: [2]f32
+Vector3 :: [3]f32
+Vector4 :: [4]f32
+
+VECTOR3_RIGHT ::   Vector3{1, 0, 0}
+VECTOR3_UP ::      Vector3{0, 1, 0}
+VECTOR3_FORWARD :: Vector3 {0, 0, -1}
+
+Color :: [4]u8
+
+BACKGROUND_COLOR :: Color {185, 105, 80, 255}
 
 when RENDERER_CHOISE == "" {
     when ODIN_OS == .Darwin {
@@ -65,24 +76,14 @@ Renderer :: struct {
 renderer: Renderer
 
 MAX_PIPELINES :: #config(MAX_PIPELINES, 8)
-MAX_BUFFERS   :: #config(MAX_BUFFERS, 8)
-MAX_TEXTURES  :: #config(MAX_TEXTURES, 32)
 
 main :: proc() {
     // Example: Setting up the renderer and draw loop
-    // 
-    // This demonstrates how to use the Huuru renderer API to:
-    // 1. Initialize the renderer system
-    // 2. Create a renderer attached to a window
-    // 3. Set up a pipeline with shaders
-    // 4. Create vertex/index buffers
-    // 5. Run a basic draw loop
 
-    // Step 1: Initialize the renderer system (call once at startup)
+    // Initialize the renderer system (call once at startup)
     init(renderers = 1)
 
-    // Step 2: Create a window provider
-    // You need to implement these callbacks for your windowing system (e.g., SDL, GLFW, native)
+    // You need to implement these callbacks for your windowing system
     window := Window_Provider {
         window_id = nil, // Your window handle
         get_size = proc(window_id: rawptr) -> [2]int {
@@ -95,16 +96,15 @@ main :: proc() {
         },
     }
 
-    // Step 3: Initialize a renderer for the window
+    // Initialize a renderer for the window
     renderer_id := init_renderer(window)
 
-    // Step 5: Create a pipeline
-    // Requires a precompiled shaders.metallib with vertex and fragment functions
     Vertex :: struct {
         position: [4]f32,
         color:    [4]f32,
     }
 
+    // Create pipeline
     pipeline := create_pipeline(renderer_id, Pipeline_Desc{
         type = Pipeline_Desc_Metal{
             vertex_entry   = "hello_triangle_vertex",
@@ -122,16 +122,7 @@ main :: proc() {
         },
     })
 
-    // Step 6: Create vertex and index buffers
-    vertices := []Vertex{
-        { position = {-0.5, -0.5, 0.0, 0.0}, color = {1.0, 0.0, 0.0, 1.0} }, // Red
-        { position = { 0.5, -0.5, 0.0, 0.0}, color = {0.0, 1.0, 0.0, 1.0} }, // Green
-        { position = { 0.0,  0.5, 0.0, 0.0}, color = {0.0, 0.0, 1.0, 1.0} }, // Blue
-    }
-    
-    indices := []u16{ 0, 1, 2 }
-
-    // Step 6b: Load and create texture
+    // Load and create texture
     tex_data, tex_width, tex_height := load_tex("assets/texture.png")
     texture := create_texture(renderer_id, Texture_Desc{
         width      = tex_width,
@@ -143,7 +134,7 @@ main :: proc() {
 
     sprite_batch := sprite_batch_init(renderer_id, texture, 0)
 
-    // Step 7: Draw loop
+    // Draw loop
     running := true
     frame: u32 = 0
     camera := Camera {
@@ -152,13 +143,6 @@ main :: proc() {
     }
     for running {
         renderer.render_command_c = 0
-
-        // set camera aspect
-        // view := mat4_view(camera.position, camera.position + VECTOR3_FORWARD, VECTOR3_UP)
-        // proj := mat4_ortho_fixed_height(camera.zoom, camera.aspect_ratio)
-        // uniforms := Uniforms{ view_projection = proj * view }
-        // push_buffer(renderer_id, uniform_buffer, &uniforms, 0, size_of(Uniforms), .Dynamic)
-
 
         cmd_begin_frame({renderer_id})
         cmd_bind_pipeline({renderer_id, pipeline})
@@ -180,8 +164,6 @@ main :: proc() {
             }
         }
 
-        
-
         // Flush remaining sprites in batch
         flush(sprite_batch)
 
@@ -191,14 +173,14 @@ main :: proc() {
         frame += 1
     }
 
-    // Step 8: Cleanup
+    // Cleanup loaded resources
     destroy_texture(renderer_id, texture)
     destroy_pipeline(renderer_id, pipeline)
+    // etc...
 
     destroy()
 }
 
-MAX_RENDER_COMMANDS :: #config(MAX_RENDER_COMMANDS, 1024)
 
 init :: proc(renderers: int = 1) {
     assert(renderers >= 1, "Need at least 1 renderer!")
@@ -230,15 +212,6 @@ init_renderer :: proc(window: Window_Provider) -> Renderer_ID {
 }
 
 Renderer_ID :: distinct uint
-Pipeline_ID :: distinct uint
-Buffer_ID :: distinct uint
-Texture_ID :: distinct uint
-Sampler_ID :: distinct uint
-
-Buffer_Type :: enum {
-    Vertex,
-    Index,
-}
 
 Vertex_Format :: enum {
     Float,
@@ -262,64 +235,6 @@ Vertex_Layout :: struct {
 Vertex_Step_Rate :: enum {
     PerVertex,
     PerInstance,
-}
-
-Buffer_Access :: enum {
-    Dynamic,
-}
-
-// Texture types
-Texture_Format :: enum {
-    RGBA8,
-    BGRA8,
-    R8,
-    RG8,
-    RGBA16F,
-    RGBA32F,
-}
-
-Texture_Filter :: enum {
-    Nearest,
-    Linear,
-}
-
-Texture_Wrap :: enum {
-    Repeat,
-    ClampToEdge,
-    MirrorRepeat,
-}
-
-Sampler_Desc :: struct {
-    min_filter: Texture_Filter,
-    mag_filter: Texture_Filter,
-    wrap_s: Texture_Wrap,
-    wrap_t: Texture_Wrap,
-}
-
-Texture_Desc :: struct {
-    width: int,
-    height: int,
-    format: Texture_Format,
-    
-    data: rawptr,          // Pixel data (can be nil for empty texture)
-    bytes_per_row: int,    // 0 = auto-calculate
-}
-
-Pipeline_Desc :: struct {
-    type: Pipeline_Desc_Type,
-    layouts: []Vertex_Layout,
-    attributes: []Vertex_Attribute,
-    blend: Blend_Descriptor,
-}
-
-Pipeline_Desc_Type :: union {
-    Pipeline_Desc_Metal
-}
-
-// So far don't need else if you precompile shaders to metallib and load that in Metal
-Pipeline_Desc_Metal :: struct {
-    vertex_entry  : string,
-    fragment_entry: string,
 }
 
 Renderer_State_Header :: struct {
@@ -358,7 +273,9 @@ Window_Provider :: struct {
     is_minimized: proc(window_id: rawptr) -> bool,
 }
 
-// Frame management
+// *** Render Command ***
+MAX_RENDER_COMMANDS :: #config(MAX_RENDER_COMMANDS, 1024)
+
 Render_Command :: union {
     Render_Command_Begin_Frame,
     Render_Command_Bind_Pipeline,
@@ -371,31 +288,12 @@ Render_Command :: union {
     Render_Command_Draw_Indexed,
 }
 
-Render_Command_Bind_Vertex_Buffer :: struct {
-    id: Renderer_ID,
-    buffer_id: Buffer_ID,
-    offset: uint,
-    index: uint,
-}
-
-cmd_bind_vertex_buffer :: proc(cmd: Render_Command_Bind_Vertex_Buffer) {
-    insert_render_command(cmd)
-}
-
 Render_Command_Begin_Frame :: struct {
     id: Renderer_ID,
 }
 
 Render_Command_End_Frame :: struct {
     id: Renderer_ID
-}
-
-cmd_begin_frame :: proc(cmd: Render_Command_Begin_Frame) {
-    insert_render_command(cmd)
-}
-
-cmd_end_frame :: proc(cmd: Render_Command_End_Frame) {
-    insert_render_command(cmd)
 }
 
 insert_render_command :: proc(cmd: Render_Command) {
@@ -407,7 +305,28 @@ insert_render_command :: proc(cmd: Render_Command) {
     }
 }
 
-// Pipeline
+cmd_begin_frame :: proc(cmd: Render_Command_Begin_Frame) { insert_render_command(cmd) }
+cmd_end_frame :: proc(cmd: Render_Command_End_Frame) { insert_render_command(cmd) }
+
+// *** Pipeline *** 
+Pipeline_ID :: distinct uint
+
+Pipeline_Desc :: struct {
+    type: Pipeline_Desc_Type,
+    layouts: []Vertex_Layout,
+    attributes: []Vertex_Attribute,
+    blend: Blend_Descriptor,
+}
+
+Pipeline_Desc_Type :: union {
+    Pipeline_Desc_Metal
+}
+
+Pipeline_Desc_Metal :: struct {
+    vertex_entry  : string,
+    fragment_entry: string,
+}
+
 create_pipeline :: proc(id: Renderer_ID, desc: Pipeline_Desc) -> Pipeline_ID {
     return RENDERER_API.create_pipeline(id, desc)
 }
@@ -421,11 +340,22 @@ Render_Command_Bind_Pipeline :: struct {
     pipeline_id: Pipeline_ID,
 }
 
-cmd_bind_pipeline :: proc(cmd: Render_Command_Bind_Pipeline) {
-    insert_render_command(cmd)
+cmd_bind_pipeline :: proc(cmd: Render_Command_Bind_Pipeline) { insert_render_command(cmd) }
+
+// *** Buffer ***
+Buffer_ID :: distinct uint
+
+MAX_BUFFERS   :: #config(MAX_BUFFERS, 8)
+
+Buffer_Type :: enum {
+    Vertex,
+    Index,
 }
 
-// Buffer
+Buffer_Access :: enum {
+    Dynamic,
+}
+
 create_buffer :: proc(id: Renderer_ID, data: rawptr, length: int, type: Buffer_Type, access: Buffer_Access) -> Buffer_ID {
     assert(length > 0)
     return RENDERER_API.create_buffer(id, data, length, type, access)
@@ -448,12 +378,34 @@ destroy_buffer :: proc(id: Renderer_ID, buffer: Buffer_ID) {
     RENDERER_API.destroy_buffer(id, buffer)
 }
 
-// Texture
-create_texture :: proc(id: Renderer_ID, desc: Texture_Desc) -> Texture_ID {
-    return RENDERER_API.create_texture(id, desc)
+Render_Command_Bind_Vertex_Buffer :: struct {
+    id: Renderer_ID,
+    buffer_id: Buffer_ID,
+    offset: uint,
+    index: uint,
 }
 
+cmd_bind_vertex_buffer :: proc(cmd: Render_Command_Bind_Vertex_Buffer) { insert_render_command(cmd) }
+
+// *** Texture ***
 import stbi "vendor:stb/image"
+
+Texture_ID :: distinct uint
+
+MAX_TEXTURES  :: #config(MAX_TEXTURES, 32)
+
+Texture_Format :: enum {
+    RGBA8,
+    BGRA8,
+    R8,
+    RG8,
+    RGBA16F,
+    RGBA32F,
+}
+
+create_texture :: proc(id: Renderer_ID, desc: Texture_Desc) -> Texture_ID { return RENDERER_API.create_texture(id, desc) }
+destroy_texture :: proc(id: Renderer_ID, texture: Texture_ID) { RENDERER_API.destroy_texture(id, texture) }
+
 // NOTE: Caller is responsible for calling stbi.image_free(data) when done
 load_tex :: proc(filepath: string) -> (data: rawptr, width: int, height: int) {
     w, h, c: i32
@@ -468,20 +420,13 @@ load_tex :: proc(filepath: string) -> (data: rawptr, width: int, height: int) {
     return
 }
 
-destroy_texture :: proc(id: Renderer_ID, texture: Texture_ID) {
-    RENDERER_API.destroy_texture(id, texture)
-}
-
 Render_Command_Bind_Texture :: struct {
     id: Renderer_ID,
     texture_id: Texture_ID,
     slot: uint,
 }
 
-// TODO seperate sampler? Currently binds texture and sampler to same slot
-cmd_bind_texture :: proc(cmd: Render_Command_Bind_Texture) {
-    insert_render_command(cmd)
-}
+cmd_bind_texture :: proc(cmd: Render_Command_Bind_Texture) { insert_render_command(cmd) }
 
 // Drawing
 Index_Type :: enum {
@@ -524,9 +469,7 @@ Render_Command_Draw_Indexed :: struct {
     index_offset: uint,
 }
 
-cmd_draw_indexed :: proc(cmd: Render_Command_Draw_Indexed) {
-    insert_render_command(cmd)
-}
+cmd_draw_indexed :: proc(cmd: Render_Command_Draw_Indexed) { insert_render_command(cmd) }
 
 Draw_Batched :: struct {
     texture: Texture_ID,
@@ -566,38 +509,31 @@ draw_batched :: proc(batch: ^Sprite_Batch, cmd: Draw_Batched) {
         world_positions[i] = {transformed.x, transformed.y, transformed.z}
     }
 
-    v1 := Sprite_Vertex {
+    batch.vertices[batch.vertex_count] = Sprite_Vertex {
         position = world_positions[0],
         uv = cmd.uv_rect.min,
         color = cmd.color,
     }
 
-    v2 := Sprite_Vertex {
+    batch.vertices[batch.vertex_count + 1] = Sprite_Vertex {
         position = world_positions[1],
         uv = {cmd.uv_rect.max.x, cmd.uv_rect.min.y},
         color = cmd.color,
     }
 
-    v3 := Sprite_Vertex {
+    batch.vertices[batch.vertex_count + 2] = Sprite_Vertex {
         position = world_positions[2],
         uv = cmd.uv_rect.max,
         color = cmd.color,
     }
 
-    v4 := Sprite_Vertex {
+    batch.vertices[batch.vertex_count + 3] = Sprite_Vertex {
         position = world_positions[3],
         uv = {cmd.uv_rect.min.x, cmd.uv_rect.max.y},
         color = cmd.color,
     }
 
-    batch.vertices[batch.vertex_count] = v1
-    batch.vertex_count += 1
-    batch.vertices[batch.vertex_count] = v2
-    batch.vertex_count += 1
-    batch.vertices[batch.vertex_count] = v3
-    batch.vertex_count += 1
-    batch.vertices[batch.vertex_count] = v4
-    batch.vertex_count += 1
+    batch.vertex_count += 4
 }
 
 flush :: proc(batch: ^Sprite_Batch) {
@@ -622,17 +558,7 @@ flush :: proc(batch: ^Sprite_Batch) {
     batch.vertex_count = 0
 }
 
-Vector2 :: [2]f32
-Vector3 :: [3]f32
-Vector4 :: [4]f32
 
-VECTOR3_RIGHT ::   Vector3{1, 0, 0}
-VECTOR3_UP ::      Vector3{0, 1, 0}
-VECTOR3_FORWARD :: Vector3 {0, 0, -1}
-
-Color :: [4]u8
-
-BACKGROUND_COLOR :: Color {185, 105, 80, 255}
 
 // Shader
 
@@ -640,69 +566,6 @@ import "core:bufio"
 import "core:os"
 import "core:io"
 import "core:strings"
-
-Free_Node :: struct {
-    next: ^Free_Node
-}
-
-Pool_Arena :: struct {
-    data: []byte,
-    chunk_size: int,
-
-    head: ^Free_Node,
-}
-
-pool_init :: proc(p: ^Pool_Arena, data: []byte, chunk_size: int) {
-	assert(chunk_size >= size_of(Free_Node), "Chunk size is too small");
-	assert(len(data) >= chunk_size, "Backing buffer length is smaller than the chunk size");
-
-    p.data = data
-    p.chunk_size = chunk_size
-
-    pool_free_all(p)
-}
-
-pool_free_all :: proc(p: ^Pool_Arena) {
-    chunk_count := len(p.data) / p.chunk_size
-    
-    for i in 0..<chunk_count {
-        ptr := &p.data[i * p.chunk_size]
-        node := cast(^Free_Node)ptr
-        node.next = p.head
-        p.head = node
-    }
-}
-
-pool_alloc :: proc(p: ^Pool_Arena) -> rawptr {
-    node := p.head
-
-    if node == nil {
-        assert(false, "Pool has no free memory left")
-    }
-
-    p.head = p.head.next
-
-    return mem.set(node, 0, p.chunk_size)
-}
-
-pool_free :: proc(p: ^Pool_Arena, ptr: rawptr) {
-    node: ^Free_Node
-
-    start := uintptr(p.data[0])
-    end := uintptr(p.data[len(p.data)])
-
-    if ptr == nil {
-        assert(false, "Trying to free a nil pointer")
-    }
-
-    if !(start <= uintptr(ptr) && uintptr(ptr) < end) {
-        assert(false, "Memory is out of bounds for the buffer")
-    }
-
-    node = cast(^Free_Node)ptr
-    node.next = p.head
-    p.head = node
-}
 
 Shader :: struct {
     vertex_entrypoint: string,
@@ -767,7 +630,7 @@ read_section :: proc(reader: ^bufio.Reader, start: string, end: byte) -> (sectio
 
     return
 }
-//
+// *** Drawing ***
 
 Uniforms :: struct {
     view_projection: matrix[4,4]f32,
@@ -798,7 +661,6 @@ Sprite_Batch :: struct {
     rid:           Renderer_ID,
 }
 
-
 sprite_batch_init :: proc(renderer_id: Renderer_ID, texture_id: Texture_ID, texture_slot: uint) -> ^Sprite_Batch {
     batch := new(Sprite_Batch)
     
@@ -823,8 +685,7 @@ sprite_batch_init :: proc(renderer_id: Renderer_ID, texture_id: Texture_ID, text
     return batch
 }
 
-
-// Blending
+// *** Pipeline Blending ***
 
 Blend_Factor :: enum {
     Zero,
@@ -875,7 +736,7 @@ AlphaBlend :: Blend_Descriptor{
     alpha_op  = .Add,
 }
 
-// Camera
+// *** Camera ***
 
 Camera :: struct {
     position:     Vector3,
@@ -886,7 +747,7 @@ Camera :: struct {
     far_z:        f32,
 }
 
-// MATH
+// *** MATH ***
 
 import "core:math/linalg"
 import "core:math"
@@ -981,7 +842,6 @@ mat4_view :: proc(eye, target, up: Vector3) -> matrix[4,4]f32 {
 }
 
 // ORTHOGRAPHIC
-
 mat4_ortho :: proc(left, right, bottom, top, near, far: f32) -> matrix[4, 4]f32 {
     rl := right - left
     tb := top - bottom
@@ -1004,7 +864,37 @@ mat4_ortho_fixed_height :: proc(height: f32, aspect: f32, near: f32 = 0, far: f3
     return mat4_ortho(left, right, bottom, top, near, far)
 }
 
-// Texture Sampler
+// *** Texture Sampler *** 
+Sampler_ID :: distinct uint
+
+MAX_SAMPLERS :: #config(MAX_SAMPLERS, 8)
+
+Texture_Desc :: struct {
+    width: int,
+    height: int,
+    format: Texture_Format,
+    
+    data: rawptr,          // Pixel data (can be nil for empty texture)
+    bytes_per_row: int,    // 0 = auto-calculate
+}
+
+Sampler_Desc :: struct {
+    min_filter: Sampler_Filter,
+    mag_filter: Sampler_Filter,
+    wrap_s: Sampler_Wrap_Mode,
+    wrap_t: Sampler_Wrap_Mode,
+}
+
+Sampler_Filter :: enum {
+    Nearest,
+    Linear,
+}
+
+Sampler_Wrap_Mode :: enum {
+    Repeat,
+    ClampToEdge,
+    MirrorRepeat,
+}
 
 Texture_Sampler_Filter :: enum {
     Nearest,
@@ -1028,11 +918,8 @@ Texture_Sampler_Desc :: struct {
     max_anisotropy: int,
 }
 
-// 
-
-create_sampler :: proc(id: Renderer_ID, desc: Sampler_Desc) -> Sampler_ID {
-    return RENDERER_API.create_sampler(id, desc)
-}
+create_sampler :: proc(id: Renderer_ID, desc: Sampler_Desc) -> Sampler_ID { return RENDERER_API.create_sampler(id, desc) }
+destroy_sampler :: proc(id: Renderer_ID, sampler: Sampler_ID) { RENDERER_API.destroy_sampler(id, sampler) }
 
 Render_Command_Bind_Sampler :: struct {
     id: Renderer_ID,
@@ -1040,10 +927,5 @@ Render_Command_Bind_Sampler :: struct {
     slot: uint,
 }
 
-cmd_bind_sampler :: proc(cmd: Render_Command_Bind_Sampler) {
-    insert_render_command(cmd)
-}
+cmd_bind_sampler :: proc(cmd: Render_Command_Bind_Sampler) { insert_render_command(cmd) }
 
-destroy_sampler :: proc(id: Renderer_ID, sampler: Sampler_ID) {
-    RENDERER_API.destroy_sampler(id, sampler)
-}

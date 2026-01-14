@@ -57,10 +57,6 @@ Metal_Texture :: struct {
     texture: ^MTL.Texture,
 }
 
-Metal_Sampler :: struct {
-    is_alive: bool,
-    sampler: ^MTL.SamplerState,
-}
 
 Metal_State :: struct {
     using _ : Renderer_State_Header,
@@ -71,8 +67,6 @@ Metal_State :: struct {
     render_pass_descriptor: ^MTL.RenderPassDescriptor,
     command_buffer: ^MTL.CommandBuffer,
     render_encoder: ^MTL.RenderCommandEncoder,
-
-    // Shader library
     shader_library: ^MTL.Library,
 
     // Skip frame flag (set when resize/visibility causes early return)
@@ -239,9 +233,8 @@ metal_end_frame :: proc(id: Renderer_ID) {
     mtl_state = nil
 }
 
-// Pipeline functions
+// *** Pipeline ***
 
-@(private="file")
 metal_get_free_pipeline :: proc(mtl_state: ^Metal_State) -> Pipeline_ID {
     for i in 0..<MAX_PIPELINES {
         if !mtl_state.pipelines[i].is_alive {
@@ -251,7 +244,6 @@ metal_get_free_pipeline :: proc(mtl_state: ^Metal_State) -> Pipeline_ID {
     log.panic("All pipeline slots are in use!")
 }
 
-@(private="file")
 metal_vertex_format_to_mtl := [Vertex_Format]MTL.VertexFormat {
     .Float  = .Float,
     .Float2 = .Float2,
@@ -369,7 +361,7 @@ metal_bind_pipeline :: proc(id: Renderer_ID, pipeline: Pipeline_ID) {
     mtl_state.render_encoder->setTriangleFillMode(.Fill)
 }
 
-// Buffer functions
+// *** Buffer ***
 
 metal_get_free_buffer :: proc(mtl_state: ^Metal_State) -> Buffer_ID {
     for i in 0..<MAX_BUFFERS {
@@ -448,6 +440,16 @@ metal_push_buffer :: proc(id: Renderer_ID, bid: Buffer_ID, data: rawptr, offset:
     }
 }
 
+metal_bind_vertex_buffer :: proc(id: Renderer_ID, buffer_id: Buffer_ID, offset: uint, index: uint) {
+    if mtl_state == nil || mtl_state.skip_frame do return
+
+    assert(int(buffer_id) < MAX_BUFFERS && int(buffer_id) >= 0, "Invalid Buffer_ID")
+    assert(mtl_state.buffers[buffer_id].is_alive, "Cannot bind destroyed buffer")
+
+    mtl_buffer := mtl_state.buffers[buffer_id].buffer
+    mtl_state.render_encoder->setVertexBuffer(mtl_buffer, NS.UInteger(offset), NS.UInteger(index))
+}
+
 metal_destroy_buffer :: proc(id: Renderer_ID, buffer: Buffer_ID) {
     mtl_state := cast(^Metal_State)get_state_from_id(id)
     
@@ -459,7 +461,7 @@ metal_destroy_buffer :: proc(id: Renderer_ID, buffer: Buffer_ID) {
     mtl_state.buffers[buffer].buffer = nil
 }
 
-// Texture functions
+// *** Texture ***
 
 @(private="file")
 metal_get_free_texture :: proc(mtl_state: ^Metal_State) -> Texture_ID {
@@ -471,18 +473,6 @@ metal_get_free_texture :: proc(mtl_state: ^Metal_State) -> Texture_ID {
     log.panic("All texture slots are in use!")
 }
 
-MAX_SAMPLERS :: #config(MAX_SAMPLERS, 4)
-
-metal_get_free_sampler :: proc(mtl_state: ^Metal_State) -> Sampler_ID {
-    for i in 0..<MAX_SAMPLERS {
-        if !mtl_state.samplers[i].is_alive {
-            return Sampler_ID(i)
-        }
-    }
-    log.panic("All sampler slots are in use!")
-}
-
-@(private="file")
 texture_format_to_mtl := [Texture_Format]MTL.PixelFormat {
     .RGBA8    = .RGBA8Unorm,
     .BGRA8    = .BGRA8Unorm,
@@ -492,7 +482,6 @@ texture_format_to_mtl := [Texture_Format]MTL.PixelFormat {
     .RGBA32F  = .RGBA32Float,
 }
 
-@(private="file")
 texture_format_bytes_per_pixel := [Texture_Format]int {
     .RGBA8    = 4,
     .BGRA8    = 4,
@@ -502,14 +491,12 @@ texture_format_bytes_per_pixel := [Texture_Format]int {
     .RGBA32F  = 16,
 }
 
-@(private="file")
-texture_filter_to_mtl := [Texture_Filter]MTL.SamplerMinMagFilter {
+texture_filter_to_mtl := [Sampler_Filter]MTL.SamplerMinMagFilter {
     .Nearest = .Nearest,
     .Linear  = .Linear,
 }
 
-@(private="file")
-texture_wrap_to_mtl := [Texture_Wrap]MTL.SamplerAddressMode {
+texture_wrap_to_mtl := [Sampler_Wrap_Mode]MTL.SamplerAddressMode {
     .Repeat       = .Repeat,
     .ClampToEdge  = .ClampToEdge,
     .MirrorRepeat = .MirrorRepeat,
@@ -557,8 +544,6 @@ metal_create_texture :: proc(id: Renderer_ID, desc: Texture_Desc) -> Texture_ID 
     return texture_id
 }
 
-
-
 metal_bind_texture :: proc(id: Renderer_ID, texture: Texture_ID, slot: uint) {
     if mtl_state == nil || mtl_state.skip_frame do return
 
@@ -581,18 +566,7 @@ metal_destroy_texture :: proc(id: Renderer_ID, texture: Texture_ID) {
     
 }
 
-
-// Drawing functions
-
-metal_bind_vertex_buffer :: proc(id: Renderer_ID, buffer_id: Buffer_ID, offset: uint, index: uint) {
-    if mtl_state == nil || mtl_state.skip_frame do return
-
-    assert(int(buffer_id) < MAX_BUFFERS && int(buffer_id) >= 0, "Invalid Buffer_ID")
-    assert(mtl_state.buffers[buffer_id].is_alive, "Cannot bind destroyed buffer")
-
-    mtl_buffer := mtl_state.buffers[buffer_id].buffer
-    mtl_state.render_encoder->setVertexBuffer(mtl_buffer, NS.UInteger(offset), NS.UInteger(index))
-}
+// *** Drawing ***
 
 index_type_to_MTL_type := [Index_Type]MTL.IndexType {
     .UInt32 = .UInt32,
@@ -651,7 +625,21 @@ metal_draw_instanced :: proc(id: Renderer_ID, buffer_id: Buffer_ID, index_count,
     )
 }
 
-// Sampler
+// *** Texture Sampler ***
+
+Metal_Sampler :: struct {
+    is_alive: bool,
+    sampler: ^MTL.SamplerState,
+}
+
+metal_get_free_sampler :: proc(mtl_state: ^Metal_State) -> Sampler_ID {
+    for i in 0..<MAX_SAMPLERS {
+        if !mtl_state.samplers[i].is_alive {
+            return Sampler_ID(i)
+        }
+    }
+    log.panic("All sampler slots are in use!")
+}
 
 metal_create_sampler :: proc(id: Renderer_ID, desc: Sampler_Desc) -> Sampler_ID {
     mtl_state := cast(^Metal_State)get_state_from_id(id)
