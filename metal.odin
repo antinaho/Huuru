@@ -226,7 +226,7 @@ create_msaa_and_depth_textures :: proc(state: ^Metal_State, width, height: int) 
     } else {
         depth_desc->setTextureType(.Type2D)
     }
-    depth_desc->setPixelFormat(.Depth32Float_Stencil8)
+    depth_desc->setPixelFormat(.Depth32Float)
     depth_desc->setWidth(NS.UInteger(width))
     depth_desc->setHeight(NS.UInteger(height))
     depth_desc->setUsage({.RenderTarget})
@@ -300,6 +300,13 @@ metal_begin_frame :: proc(id: Renderer_ID){
     depth_attachment->setLoadAction(.Clear)
     depth_attachment->setStoreAction(.DontCare)
     depth_attachment->setClearDepth(1.0)
+
+    // Maybe later if needed
+    // stencil_attachment := mtl_state.render_pass_descriptor->stencilAttachment()
+    // stencil_attachment->setTexture(mtl_state.depth_stencil_texture)
+    // stencil_attachment->setLoadAction(.Clear)
+    // stencil_attachment->setStoreAction(.DontCare)
+    // stencil_attachment->setClearStencil(0)
 
     // Create command buffer and render encoder
     mtl_state.command_buffer = mtl_state.command_queue->commandBuffer()
@@ -404,8 +411,8 @@ metal_create_pipeline :: proc(id: Renderer_ID, desc: Pipeline_Desc) -> Pipeline_
     pipeline_descriptor->setSampleCount(mtl_state.sample_count)
 
     // Set depth/stencil attachment formats (must match render pass)
-    pipeline_descriptor->setDepthAttachmentPixelFormat(.Depth32Float_Stencil8)
-    pipeline_descriptor->setStencilAttachmentPixelFormat(.Depth32Float_Stencil8)
+    pipeline_descriptor->setDepthAttachmentPixelFormat(.Depth32Float)
+    pipeline_descriptor->setStencilAttachmentPixelFormat(.Depth32Float)
 
     color_attachment := pipeline_descriptor->colorAttachments()->object(0)
     color_attachment->setPixelFormat(.BGRA8Unorm)
@@ -463,7 +470,10 @@ metal_bind_pipeline :: proc(id: Renderer_ID, pipeline: Pipeline_ID) {
     assert(int(pipeline) < MAX_PIPELINES && int(pipeline) >= 0, "Invalid Pipeline_ID")
     assert(mtl_state.pipelines[pipeline].is_alive, "Cannot bind destroyed pipeline")
     
+    mtl_state.render_encoder->setFrontFacingWinding(.CounterClockwise)
+    mtl_state.render_encoder->setCullMode(.Back)
     mtl_state.render_encoder->setRenderPipelineState(mtl_state.pipelines[pipeline].pipeline_state)
+    mtl_state.render_encoder->setDepthStencilState(mtl_state.pipelines[pipeline].depth_stencil_state)
     mtl_state.render_encoder->setTriangleFillMode(.Fill)
 }
 
