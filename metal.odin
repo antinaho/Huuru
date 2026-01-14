@@ -90,7 +90,6 @@ metal_init :: proc(window: Window_Provider) -> Renderer_ID {
 
     mtl_state.window = window
     mtl_state.is_alive = true
-    mtl_state.clear_color = {0.0, 0.0, 0.0, 1.0} // Default black
 
     mtl_state.device = MTL.CreateSystemDefaultDevice()
     assert(mtl_state.device != nil, "Metal not supported.")
@@ -200,7 +199,7 @@ metal_begin_frame :: proc(id: Renderer_ID){
     color_attachment->setTexture(mtl_state.drawable->texture())
     color_attachment->setLoadAction(.Clear)
     color_attachment->setStoreAction(.Store)
-    color_attachment->setClearColor(color_to_mtl_color(mtl_state.clear_color))
+    color_attachment->setClearColor(color_to_mtl_color(BACKGROUND_COLOR))
 
     // Create command buffer and render encoder
     mtl_state.command_buffer = mtl_state.command_queue->commandBuffer()

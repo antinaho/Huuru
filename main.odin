@@ -308,10 +308,6 @@ Pipeline_Desc_Metal :: struct {
 Renderer_State_Header :: struct {
     is_alive: bool,
     window: Window_Provider,
-    clear_color: Color,
-
-    vertex_buffer: Buffer_ID,
-    index_buffer: Buffer_ID,
 }
 
 get_free_state :: proc() -> (state: rawptr, id: Renderer_ID) {
@@ -581,6 +577,9 @@ flush :: proc(batch: ^Sprite_Batch) {
 
 Vector2 :: [2]f32
 Color :: [4]u8
+
+BACKGROUND_COLOR :: Color {185, 105, 80, 255}
+
 
 // Shader
 
