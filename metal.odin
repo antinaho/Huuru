@@ -35,6 +35,10 @@ METAL_RENDERER_API :: Renderer_API {
     draw_instanced = metal_draw_instanced,
 
     present = metal_present,
+
+    create_sampler = metal_create_sampler,
+    bind_sampler = metal_bind_sampler,
+    destroy_sampler = metal_destroy_sampler,
 }
 
 Metal_Pipeline :: struct {
@@ -51,6 +55,10 @@ Metal_Buffer :: struct {
 Metal_Texture :: struct {
     is_alive: bool,
     texture: ^MTL.Texture,
+}
+
+Metal_Sampler :: struct {
+    is_alive: bool,
     sampler: ^MTL.SamplerState,
 }
 
@@ -78,6 +86,7 @@ Metal_State :: struct {
 
     // Texture storage
     textures: [MAX_TEXTURES]Metal_Texture,
+    samplers: [MAX_SAMPLERS]Metal_Sampler,
 }
 
 metal_state_size :: proc() -> int {
@@ -136,6 +145,8 @@ metal_present :: proc() {
                 metal_bind_vertex_buffer(cmd.id, cmd.buffer_id, cmd.offset, cmd.index)
             case Render_Command_Draw_Indexed:
                 metal_draw_indexed(cmd.rid, cmd.vertex_id, cmd.vertex_offset, cmd.vertex_index, cmd.primitive, cmd.index_count, cmd.index_type, cmd.index_id, cmd.index_offset)
+            case Render_Command_Bind_Sampler:
+                metal_bind_sampler(cmd.id, cmd.sampler, cmd.slot)
         }
     }
 }
@@ -460,6 +471,17 @@ metal_get_free_texture :: proc(mtl_state: ^Metal_State) -> Texture_ID {
     log.panic("All texture slots are in use!")
 }
 
+MAX_SAMPLERS :: #config(MAX_SAMPLERS, 4)
+
+metal_get_free_sampler :: proc(mtl_state: ^Metal_State) -> Sampler_ID {
+    for i in 0..<MAX_SAMPLERS {
+        if !mtl_state.samplers[i].is_alive {
+            return Sampler_ID(i)
+        }
+    }
+    log.panic("All sampler slots are in use!")
+}
+
 @(private="file")
 texture_format_to_mtl := [Texture_Format]MTL.PixelFormat {
     .RGBA8    = .RGBA8Unorm,
@@ -529,23 +551,13 @@ metal_create_texture :: proc(id: Renderer_ID, desc: Texture_Desc) -> Texture_ID 
         )
     }
 
-    // Create sampler state
-    // TODO extract sampler to its own object?
-    sampler_desc := MTL.SamplerDescriptor.alloc()->init()
-    sampler_desc->setMinFilter(texture_filter_to_mtl[desc.min_filter])
-    sampler_desc->setMagFilter(texture_filter_to_mtl[desc.mag_filter])
-    sampler_desc->setSAddressMode(texture_wrap_to_mtl[desc.wrap_s])
-    sampler_desc->setTAddressMode(texture_wrap_to_mtl[desc.wrap_t])
-
-    sampler := mtl_state.device->newSamplerState(sampler_desc)
-    assert(sampler != nil, "Failed to create Metal sampler state")
-
     mtl_state.textures[texture_id].is_alive = true
     mtl_state.textures[texture_id].texture = texture
-    mtl_state.textures[texture_id].sampler = sampler
 
     return texture_id
 }
+
+
 
 metal_bind_texture :: proc(id: Renderer_ID, texture: Texture_ID, slot: uint) {
     if mtl_state == nil || mtl_state.skip_frame do return
@@ -554,7 +566,6 @@ metal_bind_texture :: proc(id: Renderer_ID, texture: Texture_ID, slot: uint) {
     assert(mtl_state.textures[texture].is_alive, "Cannot bind destroyed texture")
 
     mtl_state.render_encoder->setFragmentTexture(mtl_state.textures[texture].texture, NS.UInteger(slot))
-    mtl_state.render_encoder->setFragmentSamplerState(mtl_state.textures[texture].sampler, NS.UInteger(slot))
 }
 
 metal_destroy_texture :: proc(id: Renderer_ID, texture: Texture_ID) {
@@ -564,11 +575,12 @@ metal_destroy_texture :: proc(id: Renderer_ID, texture: Texture_ID) {
     assert(mtl_state.textures[texture].is_alive, "Texture already destroyed")
 
     mtl_state.textures[texture].texture->release()
-    mtl_state.textures[texture].sampler->release()
+    
     mtl_state.textures[texture].is_alive = false
     mtl_state.textures[texture].texture = nil
-    mtl_state.textures[texture].sampler = nil
+    
 }
+
 
 // Drawing functions
 
@@ -639,3 +651,40 @@ metal_draw_instanced :: proc(id: Renderer_ID, buffer_id: Buffer_ID, index_count,
     )
 }
 
+// Sampler
+
+metal_create_sampler :: proc(id: Renderer_ID, desc: Sampler_Desc) -> Sampler_ID {
+    mtl_state := cast(^Metal_State)get_state_from_id(id)
+    sampler_id := metal_get_free_sampler(mtl_state)
+
+    sampler_desc := MTL.SamplerDescriptor.alloc()->init()
+    sampler_desc->setMinFilter(texture_filter_to_mtl[desc.min_filter])
+    sampler_desc->setMagFilter(texture_filter_to_mtl[desc.mag_filter])
+    sampler_desc->setSAddressMode(texture_wrap_to_mtl[desc.wrap_s])
+    sampler_desc->setTAddressMode(texture_wrap_to_mtl[desc.wrap_t])
+
+    sampler := mtl_state.device->newSamplerState(sampler_desc)
+    assert(sampler != nil, "Failed to create Metal sampler state")
+
+    mtl_state.samplers[sampler_id].sampler = sampler
+
+    return sampler_id
+}
+
+metal_bind_sampler :: proc(id: Renderer_ID, sampler: Sampler_ID, slot: uint) {
+    if mtl_state == nil || mtl_state.skip_frame do return
+    
+    assert(int(sampler) < MAX_SAMPLERS && int(sampler) >= 0, "Invalid Sampler_ID")
+    assert(mtl_state.samplers[sampler].is_alive, "Cannot bind destroyed sampler")
+
+    mtl_state.render_encoder->setFragmentSamplerState(mtl_state.samplers[sampler].sampler, NS.UInteger(slot))
+}
+
+metal_destroy_sampler :: proc(id: Renderer_ID, sampler: Sampler_ID) {
+    assert(int(sampler) < MAX_SAMPLERS && int(sampler) >= 0, "Invalid Sampler_OD")
+    assert(mtl_state.samplers[sampler].is_alive, "Sampler already destroyed")
+
+    mtl_state.samplers[sampler].sampler->release()
+    mtl_state.samplers[sampler].is_alive = false
+    mtl_state.samplers[sampler].sampler = nil
+}

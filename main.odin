@@ -34,7 +34,10 @@ Renderer_API :: struct {
     destroy_buffer: proc(id: Renderer_ID, buffer: Buffer_ID),
     create_texture: proc(id: Renderer_ID, desc: Texture_Desc) -> Texture_ID,
     destroy_texture: proc(id: Renderer_ID, texture: Texture_ID),
+    create_sampler: proc(id: Renderer_ID, desc: Sampler_Desc) -> Sampler_ID,
+    destroy_sampler: proc(id: Renderer_ID, sampler: Sampler_ID),
     // Per frame
+    bind_sampler: proc(id: Renderer_ID, sampler: Sampler_ID, slot: uint),
     begin_frame: proc(id: Renderer_ID),
     end_frame: proc(id: Renderer_ID),
     bind_pipeline: proc(id: Renderer_ID, pipeline: Pipeline_ID),
@@ -134,10 +137,6 @@ main :: proc() {
         width      = tex_width,
         height     = tex_height,
         format     = .RGBA8,
-        min_filter = .Linear,
-        mag_filter = .Linear,
-        wrap_s     = .Repeat,
-        wrap_t     = .Repeat,
         data       = tex_data,
     })
     stbi.image_free(cast([^]byte)tex_data)
@@ -199,6 +198,8 @@ main :: proc() {
     destroy()
 }
 
+MAX_RENDER_COMMANDS :: #config(MAX_RENDER_COMMANDS, 1024)
+
 init :: proc(renderers: int = 1) {
     assert(renderers >= 1, "Need at least 1 renderer!")
 
@@ -213,7 +214,7 @@ init :: proc(renderers: int = 1) {
     renderer.state_size = state_size
     renderer.max_renderers = renderers
     renderer.frame_allocator = context.temp_allocator
-    renderer.render_commands = make([]Render_Command, 128, arena_allocator)
+    renderer.render_commands = make([]Render_Command, MAX_RENDER_COMMANDS, arena_allocator)
 }
 
 destroy :: proc() {
@@ -228,10 +229,11 @@ init_renderer :: proc(window: Window_Provider) -> Renderer_ID {
     return RENDERER_API.init(window)
 }
 
-Renderer_ID :: distinct int
+Renderer_ID :: distinct uint
 Pipeline_ID :: distinct uint
 Buffer_ID :: distinct uint
 Texture_ID :: distinct uint
+Sampler_ID :: distinct uint
 
 Buffer_Type :: enum {
     Vertex,
@@ -287,14 +289,18 @@ Texture_Wrap :: enum {
     MirrorRepeat,
 }
 
-Texture_Desc :: struct {
-    width: int,
-    height: int,
-    format: Texture_Format,
+Sampler_Desc :: struct {
     min_filter: Texture_Filter,
     mag_filter: Texture_Filter,
     wrap_s: Texture_Wrap,
     wrap_t: Texture_Wrap,
+}
+
+Texture_Desc :: struct {
+    width: int,
+    height: int,
+    format: Texture_Format,
+    
     data: rawptr,          // Pixel data (can be nil for empty texture)
     bytes_per_row: int,    // 0 = auto-calculate
 }
@@ -354,13 +360,14 @@ Window_Provider :: struct {
 
 // Frame management
 Render_Command :: union {
-    Render_Command_Draw_Simple,
+    Render_Command_Begin_Frame,
     Render_Command_Bind_Pipeline,
     Render_Command_Bind_Texture,
     Render_Command_Bind_Vertex_Buffer,
-    Render_Command_Begin_Frame,
+    Render_Command_Bind_Sampler,
+    Render_Command_Draw_Simple,
+    
     Render_Command_End_Frame,
-
     Render_Command_Draw_Indexed,
 }
 
@@ -868,6 +875,7 @@ AlphaBlend :: Blend_Descriptor{
     alpha_op  = .Add,
 }
 
+// Camera
 
 Camera :: struct {
     position:     Vector3,
@@ -877,14 +885,6 @@ Camera :: struct {
     near_z:       f32,
     far_z:        f32,
 }
-
-
-
-
-
-
-
-
 
 // MATH
 
@@ -1002,4 +1002,48 @@ mat4_ortho_fixed_height :: proc(height: f32, aspect: f32, near: f32 = 0, far: f3
     bottom := -height * 0.5
     top    :=  height * 0.5
     return mat4_ortho(left, right, bottom, top, near, far)
+}
+
+// Texture Sampler
+
+Texture_Sampler_Filter :: enum {
+    Nearest,
+    Linear,
+}
+
+Texture_Sampler_Address_Mode :: enum {
+    Repeat,
+    MirrorRepeat,
+    ClampToEdge,
+    ClampToBorder,
+}
+
+Texture_Sampler_Desc :: struct {
+    min_filter: Texture_Sampler_Filter,
+    mag_filter: Texture_Sampler_Filter,
+    mip_filter: Texture_Sampler_Filter,
+    address_mode_u: Texture_Sampler_Address_Mode,
+    address_mode_v: Texture_Sampler_Address_Mode,
+    address_mode_w: Texture_Sampler_Address_Mode,
+    max_anisotropy: int,
+}
+
+// 
+
+create_sampler :: proc(id: Renderer_ID, desc: Sampler_Desc) -> Sampler_ID {
+    return RENDERER_API.create_sampler(id, desc)
+}
+
+Render_Command_Bind_Sampler :: struct {
+    id: Renderer_ID,
+    sampler: Sampler_ID,
+    slot: uint,
+}
+
+cmd_bind_sampler :: proc(cmd: Render_Command_Bind_Sampler) {
+    insert_render_command(cmd)
+}
+
+destroy_sampler :: proc(id: Renderer_ID, sampler: Sampler_ID) {
+    RENDERER_API.destroy_sampler(id, sampler)
 }
