@@ -763,7 +763,7 @@ Sprite_Batch :: struct {
 sprite_batch_init :: proc(renderer_id: Renderer_ID, texture_id: Texture_ID, texture_slot: uint) -> ^Sprite_Batch {
     batch := new(Sprite_Batch)
     
-    indices: [6 * MAX_SPRITES]u32
+    indices := make([]u32, 6 * MAX_SPRITES)
     for i in 0..<MAX_SPRITES {
         base := i * 4
         indices[i*6 + 0] = u32(base + 0)
@@ -774,9 +774,8 @@ sprite_batch_init :: proc(renderer_id: Renderer_ID, texture_id: Texture_ID, text
         indices[i*6 + 5] = u32(base + 0)
     }
 
-    data := slice.clone(indices[:])
     batch.vertex_buffer = create_buffer_zeros(renderer_id, MAX_SPRITES * 4 * size_of(Sprite_Vertex), .Vertex, .Dynamic)
-    batch.index_buffer = create_buffer(renderer_id, raw_data(data[:]), len(indices) * size_of(u32), .Index, .Static)
+    batch.index_buffer = create_buffer(renderer_id, raw_data(indices[:]), len(indices) * size_of(u32), .Index, .Static)
 
     batch.texture = texture_id
     batch.texture_slot = texture_slot
