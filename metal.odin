@@ -132,6 +132,8 @@ metal_present :: proc() {
                 metal_bind_pipeline(cmd.id, cmd.pipeline_id)
             case Render_Command_Bind_Texture:
                 metal_bind_texture(cmd.id, cmd.texture_id, cmd.slot)
+            case Render_Command_Bind_Vertex_Buffer:
+                metal_bind_vertex_buffer(cmd.id, cmd.buffer_id, cmd.offset, cmd.index)
             case Render_Command_Draw_Indexed:
                 metal_draw_indexed(cmd.rid, cmd.vertex_id, cmd.vertex_offset, cmd.vertex_index, cmd.primitive, cmd.index_count, cmd.index_type, cmd.index_id, cmd.index_offset)
         }
@@ -569,6 +571,16 @@ metal_destroy_texture :: proc(id: Renderer_ID, texture: Texture_ID) {
 }
 
 // Drawing functions
+
+metal_bind_vertex_buffer :: proc(id: Renderer_ID, buffer_id: Buffer_ID, offset: uint, index: uint) {
+    if mtl_state == nil || mtl_state.skip_frame do return
+
+    assert(int(buffer_id) < MAX_BUFFERS && int(buffer_id) >= 0, "Invalid Buffer_ID")
+    assert(mtl_state.buffers[buffer_id].is_alive, "Cannot bind destroyed buffer")
+
+    mtl_buffer := mtl_state.buffers[buffer_id].buffer
+    mtl_state.render_encoder->setVertexBuffer(mtl_buffer, NS.UInteger(offset), NS.UInteger(index))
+}
 
 index_type_to_MTL_type := [Index_Type]MTL.IndexType {
     .UInt32 = .UInt32,

@@ -357,10 +357,22 @@ Render_Command :: union {
     Render_Command_Draw_Simple,
     Render_Command_Bind_Pipeline,
     Render_Command_Bind_Texture,
+    Render_Command_Bind_Vertex_Buffer,
     Render_Command_Begin_Frame,
     Render_Command_End_Frame,
 
     Render_Command_Draw_Indexed,
+}
+
+Render_Command_Bind_Vertex_Buffer :: struct {
+    id: Renderer_ID,
+    buffer_id: Buffer_ID,
+    offset: uint,
+    index: uint,
+}
+
+cmd_bind_vertex_buffer :: proc(cmd: Render_Command_Bind_Vertex_Buffer) {
+    insert_render_command(cmd)
 }
 
 Render_Command_Begin_Frame :: struct {
