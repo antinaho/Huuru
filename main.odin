@@ -403,7 +403,6 @@ Texture_Format :: enum {
     RGBA32F,
     // Depth/Stencil formats
     Depth32F,
-    Depth32F_Stencil8,
 }
 
 create_texture :: proc(id: Renderer_ID, desc: Texture_Desc) -> Texture_ID { return RENDERER_API.create_texture(id, desc) }

@@ -44,6 +44,7 @@ METAL_RENDERER_API :: Renderer_API {
 Metal_Pipeline :: struct {
     is_alive: bool,
     pipeline_state: ^MTL.RenderPipelineState,
+    depth_stencil_state: ^MTL.DepthStencilState,
 }
 
 Metal_Buffer :: struct {
@@ -78,7 +79,6 @@ Metal_State :: struct {
 
     // Depth/Stencil
     depth_stencil_texture: ^MTL.Texture,
-    depth_stencil_state: ^MTL.DepthStencilState,
 
     // Pipeline storage
     pipelines: [MAX_PIPELINES]Metal_Pipeline,
@@ -126,14 +126,6 @@ metal_init :: proc(window: Window_Provider) -> Renderer_ID {
     // Set MSAA sample count and create MSAA/depth textures
     mtl_state.sample_count = DEFAULT_MSAA_SAMPLE_COUNT
     create_msaa_and_depth_textures(mtl_state, size.x, size.y)
-
-    // Create depth stencil state
-    ds_desc := MTL.DepthStencilDescriptor.alloc()->init()
-    ds_desc->setDepthCompareFunction(.LessEqual)
-    ds_desc->setDepthWriteEnabled(true)
-    mtl_state.depth_stencil_state = mtl_state.device->newDepthStencilState(ds_desc)
-    assert(mtl_state.depth_stencil_state != nil, "Failed to create depth stencil state")
-    ds_desc->release()
 
     url := NS.URL.alloc()->initFileURLWithPath(NS.AT("shaders.metallib"))
     library, err := mtl_state.device->newLibraryWithURL(url)
@@ -189,7 +181,6 @@ resize_swapchain :: proc() {
 
 // Creates or recreates MSAA color texture and depth/stencil texture.
 // Called during init and on swapchain resize.
-@(private)
 create_msaa_and_depth_textures :: proc(state: ^Metal_State, width, height: int) {
     // Release old textures if they exist
     if state.msaa_texture != nil {
@@ -304,28 +295,17 @@ metal_begin_frame :: proc(id: Renderer_ID){
         color_attachment->setStoreAction(.Store)
     }
 
-    // Configure depth attachment
     depth_attachment := mtl_state.render_pass_descriptor->depthAttachment()
     depth_attachment->setTexture(mtl_state.depth_stencil_texture)
     depth_attachment->setLoadAction(.Clear)
-    depth_attachment->setClearDepth(1.0)
     depth_attachment->setStoreAction(.DontCare)
-
-    // Configure stencil attachment (using combined depth/stencil texture)
-    stencil_attachment := mtl_state.render_pass_descriptor->stencilAttachment()
-    stencil_attachment->setTexture(mtl_state.depth_stencil_texture)
-    stencil_attachment->setLoadAction(.Clear)
-    stencil_attachment->setClearStencil(0)
-    stencil_attachment->setStoreAction(.DontCare)
+    depth_attachment->setClearDepth(1.0)
 
     // Create command buffer and render encoder
     mtl_state.command_buffer = mtl_state.command_queue->commandBuffer()
     mtl_state.render_encoder = mtl_state.command_buffer->renderCommandEncoderWithDescriptor(
         mtl_state.render_pass_descriptor,
     )
-
-    // Bind depth stencil state to encoder
-    mtl_state.render_encoder->setDepthStencilState(mtl_state.depth_stencil_state)
 }
 
 metal_end_frame :: proc(id: Renderer_ID) {
@@ -447,8 +427,14 @@ metal_create_pipeline :: proc(id: Renderer_ID, desc: Pipeline_Desc) -> Pipeline_
     pipeline_state, pipeline_err := mtl_state.device->newRenderPipelineState(pipeline_descriptor)
     assert(pipeline_err == nil, "Failed to create render pipeline state")
 
+    depth_Stencil_Descriptor := MTL.DepthStencilDescriptor_alloc()->init();
+    depth_Stencil_Descriptor->setDepthCompareFunction(.LessEqual);
+    depth_Stencil_Descriptor->setDepthWriteEnabled(true);
+    depth_stencil_state := mtl_state.device->newDepthStencilState(depth_Stencil_Descriptor);
+
     mtl_state.pipelines[pipeline_id].is_alive = true
     mtl_state.pipelines[pipeline_id].pipeline_state = pipeline_state
+    mtl_state.pipelines[pipeline_id].depth_stencil_state = depth_stencil_state
 
     return pipeline_id
 }
@@ -601,7 +587,6 @@ texture_format_to_mtl := [Texture_Format]MTL.PixelFormat {
     .RGBA16F            = .RGBA16Float,
     .RGBA32F            = .RGBA32Float,
     .Depth32F           = .Depth32Float,
-    .Depth32F_Stencil8  = .Depth32Float_Stencil8,
 }
 
 depth_compare_to_mtl := [Depth_Compare_Function]MTL.CompareFunction {
@@ -622,6 +607,7 @@ texture_format_bytes_per_pixel := [Texture_Format]int {
     .RG8      = 2,
     .RGBA16F  = 8,
     .RGBA32F  = 16,
+    .Depth32F = 16,
 }
 
 texture_filter_to_mtl := [Sampler_Filter]MTL.SamplerMinMagFilter {
