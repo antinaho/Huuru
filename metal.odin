@@ -72,6 +72,14 @@ Metal_State :: struct {
     // Skip frame flag (set when resize/visibility causes early return)
     skip_frame: bool,
 
+    // MSAA
+    msaa_texture: ^MTL.Texture,
+    sample_count: NS.UInteger,  // 1 = no MSAA, 2/4/8 for MSAA
+
+    // Depth/Stencil
+    depth_stencil_texture: ^MTL.Texture,
+    depth_stencil_state: ^MTL.DepthStencilState,
+
     // Pipeline storage
     pipelines: [MAX_PIPELINES]Metal_Pipeline,
 
@@ -86,6 +94,9 @@ Metal_State :: struct {
 metal_state_size :: proc() -> int {
     return size_of(Metal_State)
 }
+
+// Default MSAA sample count (1 = disabled, 4 = 4x MSAA)
+DEFAULT_MSAA_SAMPLE_COUNT :: #config(DEFAULT_MSAA_SAMPLE_COUNT, 4)
 
 metal_init :: proc(window: Window_Provider) -> Renderer_ID {
     state, id := get_free_state()
@@ -111,6 +122,18 @@ metal_init :: proc(window: Window_Provider) -> Renderer_ID {
     mtl_state.command_queue = mtl_state.device->newCommandQueue()
     mtl_state.render_pass_descriptor = MTL.RenderPassDescriptor.alloc()->init()
     mtl_state.swapchain = swapchain
+
+    // Set MSAA sample count and create MSAA/depth textures
+    mtl_state.sample_count = DEFAULT_MSAA_SAMPLE_COUNT
+    create_msaa_and_depth_textures(mtl_state, size.x, size.y)
+
+    // Create depth stencil state
+    ds_desc := MTL.DepthStencilDescriptor.alloc()->init()
+    ds_desc->setDepthCompareFunction(.LessEqual)
+    ds_desc->setDepthWriteEnabled(true)
+    mtl_state.depth_stencil_state = mtl_state.device->newDepthStencilState(ds_desc)
+    assert(mtl_state.depth_stencil_state != nil, "Failed to create depth stencil state")
+    ds_desc->release()
 
     url := NS.URL.alloc()->initFileURLWithPath(NS.AT("shaders.metallib"))
     library, err := mtl_state.device->newLibraryWithURL(url)
@@ -159,6 +182,68 @@ swapchain_size :: proc() -> [2]int {
 resize_swapchain :: proc() {
     size := mtl_state.window.get_size(mtl_state.window.window_id)
     mtl_state.swapchain->setDrawableSize({NS.Float(size.x), NS.Float(size.y)})
+    
+    // Recreate MSAA and depth textures at new size
+    create_msaa_and_depth_textures(mtl_state, size.x, size.y)
+}
+
+// Creates or recreates MSAA color texture and depth/stencil texture.
+// Called during init and on swapchain resize.
+@(private)
+create_msaa_and_depth_textures :: proc(state: ^Metal_State, width, height: int) {
+    // Release old textures if they exist
+    if state.msaa_texture != nil {
+        state.msaa_texture->release()
+        state.msaa_texture = nil
+    }
+    if state.depth_stencil_texture != nil {
+        state.depth_stencil_texture->release()
+        state.depth_stencil_texture = nil
+    }
+
+    // Early out if dimensions are invalid
+    if width <= 0 || height <= 0 {
+        return
+    }
+
+    sample_count := state.sample_count
+    if sample_count == 0 {
+        sample_count = 1
+    }
+
+    // Create MSAA color texture (only if sample_count > 1)
+    if sample_count > 1 {
+        msaa_desc := MTL.TextureDescriptor.alloc()->init()
+        msaa_desc->setTextureType(.Type2DMultisample)
+        msaa_desc->setPixelFormat(.BGRA8Unorm)
+        msaa_desc->setWidth(NS.UInteger(width))
+        msaa_desc->setHeight(NS.UInteger(height))
+        msaa_desc->setSampleCount(sample_count)
+        msaa_desc->setUsage({.RenderTarget})
+        msaa_desc->setStorageMode(.Private)
+
+        state.msaa_texture = state.device->newTextureWithDescriptor(msaa_desc)
+        assert(state.msaa_texture != nil, "Failed to create MSAA texture")
+        msaa_desc->release()
+    }
+
+    // Create depth/stencil texture
+    depth_desc := MTL.TextureDescriptor.alloc()->init()
+    if sample_count > 1 {
+        depth_desc->setTextureType(.Type2DMultisample)
+        depth_desc->setSampleCount(sample_count)
+    } else {
+        depth_desc->setTextureType(.Type2D)
+    }
+    depth_desc->setPixelFormat(.Depth32Float_Stencil8)
+    depth_desc->setWidth(NS.UInteger(width))
+    depth_desc->setHeight(NS.UInteger(height))
+    depth_desc->setUsage({.RenderTarget})
+    depth_desc->setStorageMode(.Private)
+
+    state.depth_stencil_texture = state.device->newTextureWithDescriptor(depth_desc)
+    assert(state.depth_stencil_texture != nil, "Failed to create depth/stencil texture")
+    depth_desc->release()
 }
 
 metal_begin_frame :: proc(id: Renderer_ID){
@@ -202,17 +287,45 @@ metal_begin_frame :: proc(id: Renderer_ID){
         }
     }
 
+    // Configure color attachment
     color_attachment := mtl_state.render_pass_descriptor->colorAttachments()->object(0)
-    color_attachment->setTexture(mtl_state.drawable->texture())
     color_attachment->setLoadAction(.Clear)
-    color_attachment->setStoreAction(.Store)
     color_attachment->setClearColor(color_to_mtl_color(BACKGROUND_COLOR))
+
+    if mtl_state.sample_count > 1 {
+        // MSAA: render to MSAA texture, resolve to drawable
+        color_attachment->setTexture(mtl_state.msaa_texture)
+        color_attachment->setResolveTexture(mtl_state.drawable->texture())
+        color_attachment->setStoreAction(.MultisampleResolve)
+    } else {
+        // No MSAA: render directly to drawable
+        color_attachment->setTexture(mtl_state.drawable->texture())
+        color_attachment->setResolveTexture(nil)
+        color_attachment->setStoreAction(.Store)
+    }
+
+    // Configure depth attachment
+    depth_attachment := mtl_state.render_pass_descriptor->depthAttachment()
+    depth_attachment->setTexture(mtl_state.depth_stencil_texture)
+    depth_attachment->setLoadAction(.Clear)
+    depth_attachment->setClearDepth(1.0)
+    depth_attachment->setStoreAction(.DontCare)
+
+    // Configure stencil attachment (using combined depth/stencil texture)
+    stencil_attachment := mtl_state.render_pass_descriptor->stencilAttachment()
+    stencil_attachment->setTexture(mtl_state.depth_stencil_texture)
+    stencil_attachment->setLoadAction(.Clear)
+    stencil_attachment->setClearStencil(0)
+    stencil_attachment->setStoreAction(.DontCare)
 
     // Create command buffer and render encoder
     mtl_state.command_buffer = mtl_state.command_queue->commandBuffer()
     mtl_state.render_encoder = mtl_state.command_buffer->renderCommandEncoderWithDescriptor(
         mtl_state.render_pass_descriptor,
     )
+
+    // Bind depth stencil state to encoder
+    mtl_state.render_encoder->setDepthStencilState(mtl_state.depth_stencil_state)
 }
 
 metal_end_frame :: proc(id: Renderer_ID) {
@@ -306,6 +419,13 @@ metal_create_pipeline :: proc(id: Renderer_ID, desc: Pipeline_Desc) -> Pipeline_
     pipeline_descriptor->setVertexDescriptor(vertex_descriptor)
     pipeline_descriptor->setVertexFunction(vertex_function)
     pipeline_descriptor->setFragmentFunction(fragment_function)
+
+    // Set MSAA sample count (must match render target)
+    pipeline_descriptor->setSampleCount(mtl_state.sample_count)
+
+    // Set depth/stencil attachment formats (must match render pass)
+    pipeline_descriptor->setDepthAttachmentPixelFormat(.Depth32Float_Stencil8)
+    pipeline_descriptor->setStencilAttachmentPixelFormat(.Depth32Float_Stencil8)
 
     color_attachment := pipeline_descriptor->colorAttachments()->object(0)
     color_attachment->setPixelFormat(.BGRA8Unorm)
@@ -474,12 +594,25 @@ metal_get_free_texture :: proc(mtl_state: ^Metal_State) -> Texture_ID {
 }
 
 texture_format_to_mtl := [Texture_Format]MTL.PixelFormat {
-    .RGBA8    = .RGBA8Unorm,
-    .BGRA8    = .BGRA8Unorm,
-    .R8       = .R8Unorm,
-    .RG8      = .RG8Unorm,
-    .RGBA16F  = .RGBA16Float,
-    .RGBA32F  = .RGBA32Float,
+    .RGBA8              = .RGBA8Unorm,
+    .BGRA8              = .BGRA8Unorm,
+    .R8                 = .R8Unorm,
+    .RG8                = .RG8Unorm,
+    .RGBA16F            = .RGBA16Float,
+    .RGBA32F            = .RGBA32Float,
+    .Depth32F           = .Depth32Float,
+    .Depth32F_Stencil8  = .Depth32Float_Stencil8,
+}
+
+depth_compare_to_mtl := [Depth_Compare_Function]MTL.CompareFunction {
+    .Never        = .Never,
+    .Less         = .Less,
+    .Equal        = .Equal,
+    .LessEqual    = .LessEqual,
+    .Greater      = .Greater,
+    .NotEqual     = .NotEqual,
+    .GreaterEqual = .GreaterEqual,
+    .Always       = .Always,
 }
 
 texture_format_bytes_per_pixel := [Texture_Format]int {
