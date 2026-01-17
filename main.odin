@@ -87,7 +87,7 @@ main :: proc() {
 
     // You need to implement these callbacks for your windowing system
     window := Window_Provider {
-        window_id = nil, // Your window handle
+        data = nil, // Your window handle
         get_size = proc(window_id: rawptr) -> [2]int {
             // Return window dimensions
             return {800, 600}
@@ -267,11 +267,11 @@ is_state_alive :: proc(state: rawptr) -> bool {
 }
 
 Window_Provider :: struct {
-    window_id:         rawptr,
-    get_size:          proc(window_id: rawptr) -> Vec2i,
-    get_native_handle: proc(window_id: rawptr) -> rawptr,
-    is_visible:        proc(window_id: rawptr) -> bool,
-    is_minimized:      proc(window_id: rawptr) -> bool,
+    data:              rawptr,
+    get_size:          proc(data: rawptr) -> Vec2i,
+    get_native_handle: proc(data: rawptr) -> rawptr,
+    is_visible:        proc(data: rawptr) -> bool,
+    is_minimized:      proc(data: rawptr) -> bool,
 }
 
 // *** Render Command ***

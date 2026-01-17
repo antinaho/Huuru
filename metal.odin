@@ -108,14 +108,14 @@ metal_init :: proc(window: Window_Provider) -> Renderer_ID {
     mtl_state.device = MTL.CreateSystemDefaultDevice()
     assert(mtl_state.device != nil, "Metal not supported.")
 
-    size := window.get_size(window.window_id)
+    size := window.get_size(window.data)
 
     swapchain := CA.MetalLayer.layer()
     swapchain->setDevice(mtl_state.device)
     swapchain->setPixelFormat(.BGRA8Unorm)
     swapchain->setDrawableSize({NS.Float(size.x), NS.Float(size.y)})
 
-    mtl_window := cast(^NS.Window)window.get_native_handle(window.window_id)
+    mtl_window := cast(^NS.Window)window.get_native_handle(window.data)
     mtl_window->contentView()->setLayer(swapchain)
     mtl_window->contentView()->setWantsLayer(true)
 
@@ -172,7 +172,7 @@ swapchain_size :: proc() -> [2]int {
 }
 
 resize_swapchain :: proc() {
-    size := mtl_state.window.get_size(mtl_state.window.window_id)
+    size := mtl_state.window.get_size(mtl_state.window.data)
     mtl_state.swapchain->setDrawableSize({NS.Float(size.x), NS.Float(size.y)})
     
     // Recreate MSAA and depth textures at new size
@@ -244,7 +244,7 @@ metal_begin_frame :: proc(id: Renderer_ID){
     // Acquire next drawable
     mtl_state.drawable = mtl_state.swapchain->nextDrawable()
     
-    if !mtl_state.window.is_visible(mtl_state.window.window_id) || mtl_state.window.is_minimized(mtl_state.window.window_id) {
+    if !mtl_state.window.is_visible(mtl_state.window.data) || mtl_state.window.is_minimized(mtl_state.window.data) {
         log.info("Window not visible or minimized, skipping draw")
         mtl_state.skip_frame = true
         return
@@ -256,7 +256,7 @@ metal_begin_frame :: proc(id: Renderer_ID){
         return
     }
 
-    if mtl_state.window.get_size(mtl_state.window.window_id) != swapchain_size() {
+    if mtl_state.window.get_size(mtl_state.window.data) != swapchain_size() {
         log.info("Resizing swapchain")
         resize_swapchain()
         mtl_state.skip_frame = true
