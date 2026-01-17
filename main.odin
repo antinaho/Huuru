@@ -7,13 +7,15 @@ import "core:mem"
 
 RENDERER_CHOISE :: #config(RENDERER, "")
 
-Vector2 :: [2]f32
-Vector3 :: [3]f32
-Vector4 :: [4]f32
+Vec2i :: [2]int
 
-VECTOR3_RIGHT ::   Vector3{1, 0, 0}
-VECTOR3_UP ::      Vector3{0, 1, 0}
-VECTOR3_FORWARD :: Vector3 {0, 0, -1}
+Vec2 ::  [2]f32
+Vec3 ::  [3]f32
+Vec4 ::  [4]f32
+
+VECTOR3_RIGHT ::   Vec3 {1, 0,  0}
+VECTOR3_UP ::      Vec3 {0, 1,  0}
+VECTOR3_FORWARD :: Vec3 {0, 0, -1}
 
 Color :: [4]u8
 
@@ -36,27 +38,27 @@ when RENDERER_CHOISE == "" {
 RENDERER_API :: DEFAULT_RENDERER_API
 
 Renderer_API :: struct {
-    state_size: proc() -> int,
-    init: proc(window: Window_Provider) -> Renderer_ID,
-    create_pipeline: proc(id: Renderer_ID, desc: Pipeline_Desc) -> Pipeline_ID,
-    destroy_pipeline: proc(id: Renderer_ID, pipeline: Pipeline_ID),
-    create_buffer: proc(id: Renderer_ID, data: rawptr, size: int, type: Buffer_Type, access: Buffer_Access) -> Buffer_ID,
+    state_size:          proc() -> int,
+    init:                proc(window: Window_Provider) -> Renderer_ID,
+    create_pipeline:     proc(id: Renderer_ID, desc: Pipeline_Desc) -> Pipeline_ID,
+    destroy_pipeline:    proc(id: Renderer_ID, pipeline: Pipeline_ID),
+    create_buffer:       proc(id: Renderer_ID, data: rawptr, size: int, type: Buffer_Type, access: Buffer_Access) -> Buffer_ID,
     create_buffer_zeros: proc(id: Renderer_ID, length: int, type: Buffer_Type, access: Buffer_Access) -> Buffer_ID,
-    destroy_buffer: proc(id: Renderer_ID, buffer: Buffer_ID),
-    create_texture: proc(id: Renderer_ID, desc: Texture_Desc) -> Texture_ID,
-    destroy_texture: proc(id: Renderer_ID, texture: Texture_ID),
-    create_sampler: proc(id: Renderer_ID, desc: Sampler_Desc) -> Sampler_ID,
-    destroy_sampler: proc(id: Renderer_ID, sampler: Sampler_ID),
+    destroy_buffer:      proc(id: Renderer_ID, buffer: Buffer_ID),
+    create_texture:      proc(id: Renderer_ID, desc: Texture_Desc) -> Texture_ID,
+    destroy_texture:     proc(id: Renderer_ID, texture: Texture_ID),
+    create_sampler:      proc(id: Renderer_ID, desc: Sampler_Desc) -> Sampler_ID,
+    destroy_sampler:     proc(id: Renderer_ID, sampler: Sampler_ID),
     // Per frame
-    bind_sampler: proc(id: Renderer_ID, sampler: Sampler_ID, slot: uint),
-    begin_frame: proc(id: Renderer_ID),
-    end_frame: proc(id: Renderer_ID),
-    bind_pipeline: proc(id: Renderer_ID, pipeline: Pipeline_ID),
-    push_buffer: proc(id: Renderer_ID, bid: Buffer_ID, data: rawptr, offset: uint, lenght: int, access: Buffer_Access),
-    bind_texture: proc(id: Renderer_ID, texture: Texture_ID, slot: uint),
-    draw_simple: proc(renderer_id: Renderer_ID, buffer_id: Buffer_ID, buffer_offset: uint, buffer_index: uint, type: Primitive_Type, vertex_start: uint, vertex_count: uint),
-    draw_instanced: proc(id: Renderer_ID, vertex_buffer: Buffer_ID, index_count, offset, instance_count: uint, index_type: Index_Type, primitive: Primitive_Type),
-    present: proc(),
+    bind_sampler:        proc(id: Renderer_ID, sampler: Sampler_ID, slot: uint),
+    begin_frame:         proc(id: Renderer_ID),
+    end_frame:           proc(id: Renderer_ID),
+    bind_pipeline:       proc(id: Renderer_ID, pipeline: Pipeline_ID),
+    push_buffer:         proc(id: Renderer_ID, bid: Buffer_ID, data: rawptr, offset: uint, lenght: int, access: Buffer_Access),
+    bind_texture:        proc(id: Renderer_ID, texture: Texture_ID, slot: uint),
+    draw_simple:         proc(renderer_id: Renderer_ID, buffer_id: Buffer_ID, buffer_offset: uint, buffer_index: uint, type: Primitive_Type, vertex_start: uint, vertex_count: uint),
+    draw_instanced:      proc(id: Renderer_ID, vertex_buffer: Buffer_ID, index_count, offset, instance_count: uint, index_type: Index_Type, primitive: Primitive_Type),
+    present:             proc(),
 }
 
 Renderer :: struct {
@@ -222,13 +224,13 @@ Vertex_Format :: enum {
 }
 
 Vertex_Attribute :: struct {
-    format: Vertex_Format,
-    offset: uintptr,
+    format:  Vertex_Format,
+    offset:  uintptr,
     binding: int, 
 }
 
 Vertex_Layout :: struct {
-    stride: int,
+    stride:    int,
     step_rate: Vertex_Step_Rate,
 }
 
@@ -239,7 +241,7 @@ Vertex_Step_Rate :: enum {
 
 Renderer_State_Header :: struct {
     is_alive: bool,
-    window: Window_Provider,
+    window:   Window_Provider,
 }
 
 get_free_state :: proc() -> (state: rawptr, id: Renderer_ID) {
@@ -265,12 +267,11 @@ is_state_alive :: proc(state: rawptr) -> bool {
 }
 
 Window_Provider :: struct {
-    window_id: rawptr,
-    
-    get_size: proc(window_id: rawptr) -> [2]int,
+    window_id:         rawptr,
+    get_size:          proc(window_id: rawptr) -> Vec2i,
     get_native_handle: proc(window_id: rawptr) -> rawptr,
-    is_visible: proc(window_id: rawptr) -> bool,
-    is_minimized: proc(window_id: rawptr) -> bool,
+    is_visible:        proc(window_id: rawptr) -> bool,
+    is_minimized:      proc(window_id: rawptr) -> bool,
 }
 
 // *** Render Command ***
@@ -312,10 +313,10 @@ cmd_end_frame :: proc(cmd: Render_Command_End_Frame) { insert_render_command(cmd
 Pipeline_ID :: distinct uint
 
 Pipeline_Desc :: struct {
-    type: Pipeline_Desc_Type,
-    layouts: []Vertex_Layout,
+    type:       Pipeline_Desc_Type,
+    layouts:    []Vertex_Layout,
     attributes: []Vertex_Attribute,
-    blend: Blend_Descriptor,
+    blend:      Blend_Descriptor,
 }
 
 Pipeline_Desc_Type :: union {
@@ -323,7 +324,7 @@ Pipeline_Desc_Type :: union {
 }
 
 Pipeline_Desc_Metal :: struct {
-    vertex_entry  : string,
+    vertex_entry:   string,
     fragment_entry: string,
 }
 
@@ -336,7 +337,7 @@ destroy_pipeline :: proc(id: Renderer_ID, pipeline: Pipeline_ID) {
 }
 
 Render_Command_Bind_Pipeline :: struct {
-    id: Renderer_ID,
+    id:          Renderer_ID,
     pipeline_id: Pipeline_ID,
 }
 
@@ -423,9 +424,9 @@ load_tex :: proc(filepath: string) -> (data: rawptr, width: int, height: int) {
 }
 
 Render_Command_Bind_Texture :: struct {
-    id: Renderer_ID,
+    id:         Renderer_ID,
     texture_id: Texture_ID,
-    slot: uint,
+    slot:       uint,
 }
 
 cmd_bind_texture :: proc(cmd: Render_Command_Bind_Texture) { insert_render_command(cmd) }
@@ -441,13 +442,13 @@ Primitive_Type :: enum {
 }
 
 Render_Command_Draw_Simple :: struct {
-    id: Renderer_ID,
-    bid: Buffer_ID,
+    id:            Renderer_ID,
+    bid:           Buffer_ID,
     buffer_offset: uint,
-    buffer_index: uint,
-    primitive: Primitive_Type,
-    vertex_start: uint,
-    vertex_count: uint,
+    buffer_index:  uint,
+    primitive:     Primitive_Type,
+    vertex_start:  uint,
+    vertex_count:  uint,
 }
 
 cmd_draw_simple :: proc(cmd: Render_Command_Draw_Simple) {
@@ -459,27 +460,27 @@ draw_instanced :: proc(id: Renderer_ID, vertex_buffer: Buffer_ID, index_count, i
 }
 
 Render_Command_Draw_Indexed :: struct {
-    rid: Renderer_ID,
-    vertex_id: Buffer_ID,
+    rid:           Renderer_ID,
+    vertex_id:     Buffer_ID,
     vertex_offset: uint,
-    vertex_index: uint,
-    primitive: Primitive_Type,
+    vertex_index:  uint,
+    primitive:     Primitive_Type,
   
-    index_id: Buffer_ID,
-    index_type: Index_Type,
-    index_count: uint,
-    index_offset: uint,
+    index_id:      Buffer_ID,
+    index_type:    Index_Type,
+    index_count:   uint,
+    index_offset:  uint,
 }
 
 cmd_draw_indexed :: proc(cmd: Render_Command_Draw_Indexed) { insert_render_command(cmd) }
 
 Draw_Batched :: struct {
-    texture: Texture_ID,
-    position: Vector3,
-    rotation: Vector3,
-    scale: Vector3,
-    uv_rect: UV_Rect,
-    color: Color,
+    texture:  Texture_ID,
+    position: Vec3,
+    rotation: Vec3,
+    scale:    Vec3,
+    uv_rect:  UV_Rect,
+    color:    Color,
 }
 
 draw_batched :: proc(batch: ^Sprite_Batch, cmd: Draw_Batched) {
@@ -497,7 +498,7 @@ draw_batched :: proc(batch: ^Sprite_Batch, cmd: Draw_Batched) {
 
     // Define local-space quad vertices (unit quad centered at origin)
     // These will be transformed by the model matrix to world space
-    local_positions := [4]Vector4{
+    local_positions := [4]Vec4{
         {-0.5, -0.5, 0, 1},  // bottom-left
         { 0.5, -0.5, 0, 1},  // bottom-right
         { 0.5,  0.5, 0, 1},  // top-right
@@ -505,7 +506,7 @@ draw_batched :: proc(batch: ^Sprite_Batch, cmd: Draw_Batched) {
     }
 
     // Transform each vertex by model matrix to get world-space positions
-    world_positions: [4]Vector3
+    world_positions: [4]Vec3
     for i in 0..<4 {
         transformed := model * local_positions[i]
         world_positions[i] = {transformed.x, transformed.y, transformed.z}
@@ -559,8 +560,6 @@ flush :: proc(batch: ^Sprite_Batch) {
 
     batch.vertex_count = 0
 }
-
-
 
 // Shader
 
@@ -640,14 +639,14 @@ Uniforms :: struct {
 
 
 UV_Rect :: struct {
-    min: Vector2,  // bottom-left UV
-    max: Vector2,  // top-right UV
+    min: Vec2,  // bottom-left UV
+    max: Vec2,  // top-right UV
 }
 
 Sprite_Vertex :: struct {
-    position: Vector3,
+    position: Vec3,
     _:        f32,
-    uv:       Vector2,
+    uv:       Vec2,
     color:    Color,
 }
 
@@ -752,8 +751,8 @@ AlphaBlend :: Blend_Descriptor{
 // *** Camera ***
 
 Camera :: struct {
-    position:     Vector3,
-    rotation:     Vector3,
+    position:     Vec3,
+    rotation:     Vec3,
     aspect_ratio: f32,
     zoom:         f32,
     near_z:       f32,
@@ -766,7 +765,7 @@ import "core:math/linalg"
 import "core:math"
 
 // TRANSLATE
-mat4_translate_vector3 :: proc(v: Vector3) -> matrix[4, 4]f32 {
+mat4_translate_vector3 :: proc(v: Vec3) -> matrix[4, 4]f32 {
     return {
         1, 0, 0, v.x,
         0, 1, 0, v.y,
@@ -809,7 +808,7 @@ mat4_rotate_z :: proc "contextless" (angle_radians: f32) -> matrix[4, 4]f32 {
     }
 }
 
-mat4_rotate_euler :: proc "contextless" (radians_rotation: Vector3) -> matrix[4, 4]f32 {
+mat4_rotate_euler :: proc "contextless" (radians_rotation: Vec3) -> matrix[4, 4]f32 {
     Rx := mat4_rotate_x(radians_rotation.x)
     Ry := mat4_rotate_y(radians_rotation.y)
     Rz := mat4_rotate_z(radians_rotation.z)
@@ -818,7 +817,7 @@ mat4_rotate_euler :: proc "contextless" (radians_rotation: Vector3) -> matrix[4,
 }
 
 // SCALE
-mat4_scale_vector3 :: proc(v: Vector3) -> matrix[4, 4]f32 {
+mat4_scale_vector3 :: proc(v: Vec3) -> matrix[4, 4]f32 {
     return {
         v.x, 0,   0,   0,
         0,   v.y, 0,   0,
@@ -832,7 +831,7 @@ mat4_scale_uniform :: proc(s: f32) -> matrix[4, 4]f32 {
 }
 
 // MODEL
-mat4_model :: proc(position, radian_rotation, scale: Vector3) -> matrix[4, 4]f32 {
+mat4_model :: proc(position, radian_rotation, scale: Vec3) -> matrix[4, 4]f32 {
     T := mat4_translate_vector3(position)
     R := mat4_rotate_euler(radian_rotation)
     S := mat4_scale_vector3(scale)
@@ -841,7 +840,7 @@ mat4_model :: proc(position, radian_rotation, scale: Vector3) -> matrix[4, 4]f32
 }
 
 // VIEW
-mat4_view :: proc(eye, target, up: Vector3) -> matrix[4,4]f32 {
+mat4_view :: proc(eye, target, up: Vec3) -> matrix[4,4]f32 {
     forward := linalg.normalize(target - eye)  
     right := linalg.normalize(linalg.cross(forward, up))  
     up := linalg.cross(right, forward) 
@@ -922,9 +921,9 @@ Texture_Sampler_Address_Mode :: enum {
 }
 
 Texture_Sampler_Desc :: struct {
-    min_filter: Texture_Sampler_Filter,
-    mag_filter: Texture_Sampler_Filter,
-    mip_filter: Texture_Sampler_Filter,
+    min_filter:     Texture_Sampler_Filter,
+    mag_filter:     Texture_Sampler_Filter,
+    mip_filter:     Texture_Sampler_Filter,
     address_mode_u: Texture_Sampler_Address_Mode,
     address_mode_v: Texture_Sampler_Address_Mode,
     address_mode_w: Texture_Sampler_Address_Mode,
@@ -935,9 +934,9 @@ create_sampler :: proc(id: Renderer_ID, desc: Sampler_Desc) -> Sampler_ID { retu
 destroy_sampler :: proc(id: Renderer_ID, sampler: Sampler_ID) { RENDERER_API.destroy_sampler(id, sampler) }
 
 Render_Command_Bind_Sampler :: struct {
-    id: Renderer_ID,
+    id:      Renderer_ID,
     sampler: Sampler_ID,
-    slot: uint,
+    slot:    uint,
 }
 
 cmd_bind_sampler :: proc(cmd: Render_Command_Bind_Sampler) { insert_render_command(cmd) }
