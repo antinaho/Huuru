@@ -845,17 +845,24 @@ mat4_model :: proc(position, radian_rotation, scale: Vec3) -> matrix[4, 4]f32 {
 }
 
 // VIEW
-mat4_view :: proc(eye, target, up: Vec3) -> matrix[4,4]f32 {
+// For 2D orthographic rendering, a simple translation is often sufficient
+mat4_view :: proc(eye, target, world_up: Vec3) -> matrix[4,4]f32 {
     forward := linalg.normalize(target - eye)  
-    right := linalg.normalize(linalg.cross(forward, up))  
+    right := linalg.normalize(linalg.cross(forward, world_up))  
     up := linalg.cross(right, forward) 
-    
-    return {
-        right.x,     right.y,     right.z,   -linalg.dot(right, eye),
-        up.x,        up.y,        up.z,      -linalg.dot(up, eye),
-        -forward.x, -forward.y,  -forward.z,  linalg.dot(forward, eye),
-        0,           0,           0,          1,
+
+    // Rotation part (transpose of camera orientation)
+    R := matrix[4,4]f32{
+        right.x, right.y, right.z, 0,
+        up.x,    up.y,    up.z,    0,
+        -forward.x, -forward.y, -forward.z, 0,
+        0, 0, 0, 1,
     }
+    
+    // Translation part  
+    T := mat4_translate_vector3(-eye)
+    
+    return R * T
 }
 
 // ORTHOGRAPHIC
@@ -879,6 +886,15 @@ mat4_ortho_fixed_height :: proc(height: f32, aspect: f32, near: f32 = 0, far: f3
     bottom := -height * 0.5
     top    :=  height * 0.5
     return mat4_ortho(left, right, bottom, top, near, far)
+}
+
+mat4_identity :: proc() -> matrix[4, 4]f32 {
+    return {
+        1, 0, 0, 0,
+        0, 1, 0, 0,
+        0, 0, 1, 0,
+        0, 0, 0, 1
+    }
 }
 
 // *** Texture Sampler *** 
