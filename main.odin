@@ -75,6 +75,7 @@ Renderer :: struct {
     arena: mem.Arena,
 }
 
+@(private="package")
 renderer: Renderer
 
 MAX_PIPELINES :: #config(MAX_PIPELINES, 8)
@@ -201,6 +202,10 @@ init :: proc(renderers: int = 1) {
     renderer.render_commands = make([]Render_Command, MAX_RENDER_COMMANDS, arena_allocator)
 }
 
+clear_commands :: proc() {
+    renderer.render_command_c = 0
+}
+
 destroy :: proc() {
     delete(renderer.arena.data)
 }
@@ -275,7 +280,7 @@ Window_Provider :: struct {
 }
 
 // *** Render Command ***
-MAX_RENDER_COMMANDS :: #config(MAX_RENDER_COMMANDS, 1024)
+MAX_RENDER_COMMANDS :: #config(MAX_RENDER_COMMANDS, 8_192)
 
 Render_Command :: union {
     Render_Command_Begin_Frame,
