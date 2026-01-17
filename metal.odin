@@ -726,11 +726,11 @@ metal_draw_indexed :: proc(id: Renderer_ID, vertex_buffer_id: Buffer_ID, buffer_
     mtl_index_buffer := mtl_state.buffers[index_buffer].buffer
     
     mtl_state.render_encoder->drawIndexedPrimitives(
-        primitive_type_to_MTL_primitive[primitive],
-        NS.UInteger(index_count),
-        index_type_to_MTL_type[index_type],
-        mtl_index_buffer,
-        NS.UInteger(index_buffer_offset),
+        primitiveType     = primitive_type_to_MTL_primitive[primitive],
+        indexCount        = NS.UInteger(index_count),
+        indexType         = index_type_to_MTL_type[index_type],
+        indexBuffer       = mtl_index_buffer,
+        indexBufferOffset = NS.UInteger(index_buffer_offset),
     )
 }
 

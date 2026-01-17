@@ -560,7 +560,7 @@ flush :: proc(batch: ^Sprite_Batch) {
         primitive = .Triangle,
         vertex_offset = byte_offset,
         vertex_index = 0,
-        index_offset = uint(batch.buffer_offset / 4) * 6 * size_of(u32),
+        index_offset = 0,
         index_type = .UInt32,
         index_count = uint(batch.vertex_count / 4) * 6
     })
