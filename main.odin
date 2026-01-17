@@ -549,20 +549,23 @@ flush :: proc(batch: ^Sprite_Batch) {
         return
     }
 
-    push_buffer(batch.rid, batch.vertex_buffer, raw_data(batch.vertices[:]), 0, size_of(Sprite_Vertex) * batch.vertex_count, .Dynamic)
+    byte_offset := uint(batch.buffer_offset * size_of(Sprite_Vertex))
+
+    push_buffer(batch.rid, batch.vertex_buffer, raw_data(batch.vertices[:]), byte_offset, size_of(Sprite_Vertex) * batch.vertex_count, .Dynamic)
     cmd_bind_texture({id=batch.rid, texture_id=batch.texture, slot=batch.texture_slot})
     cmd_draw_indexed(Render_Command_Draw_Indexed{
         rid = batch.rid,
         vertex_id = batch.vertex_buffer,
         index_id = batch.index_buffer,
         primitive = .Triangle,
-        vertex_offset = 0,
+        vertex_offset = byte_offset,
         vertex_index = 0,
-        index_offset = 0,
+        index_offset = uint(batch.buffer_offset / 4) * 6 * size_of(u32),
         index_type = .UInt32,
         index_count = uint(batch.vertex_count / 4) * 6
     })
 
+    batch.buffer_offset += batch.vertex_count
     batch.vertex_count = 0
 }
 
@@ -661,6 +664,7 @@ Sprite_Batch :: struct {
     vertex_buffer: Buffer_ID,
     index_buffer:  Buffer_ID,
     
+    buffer_offset: int,
     vertex_count:  int,
     texture:       Texture_ID,
     texture_slot:  uint,
@@ -845,13 +849,11 @@ mat4_model :: proc(position, radian_rotation, scale: Vec3) -> matrix[4, 4]f32 {
 }
 
 // VIEW
-// For 2D orthographic rendering, a simple translation is often sufficient
 mat4_view :: proc(eye, target, world_up: Vec3) -> matrix[4,4]f32 {
     forward := linalg.normalize(target - eye)  
     right := linalg.normalize(linalg.cross(forward, world_up))  
     up := linalg.cross(right, forward) 
 
-    // Rotation part (transpose of camera orientation)
     R := matrix[4,4]f32{
         right.x, right.y, right.z, 0,
         up.x,    up.y,    up.z,    0,
@@ -859,7 +861,6 @@ mat4_view :: proc(eye, target, world_up: Vec3) -> matrix[4,4]f32 {
         0, 0, 0, 1,
     }
     
-    // Translation part  
     T := mat4_translate_vector3(-eye)
     
     return R * T
@@ -903,7 +904,7 @@ Sampler_ID :: distinct uint
 MAX_SAMPLERS :: #config(MAX_SAMPLERS, 8)
 
 Texture_Desc :: struct {
-    width: int,
+    width:  int,
     height: int,
     format: Texture_Format,
     
@@ -961,4 +962,3 @@ Render_Command_Bind_Sampler :: struct {
 }
 
 cmd_bind_sampler :: proc(cmd: Render_Command_Bind_Sampler) { insert_render_command(cmd) }
-
