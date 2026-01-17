@@ -412,7 +412,7 @@ metal_create_pipeline :: proc(id: Renderer_ID, desc: Pipeline_Desc) -> Pipeline_
 
     // Set depth/stencil attachment formats (must match render pass)
     pipeline_descriptor->setDepthAttachmentPixelFormat(.Depth32Float)
-    pipeline_descriptor->setStencilAttachmentPixelFormat(.Depth32Float)
+    //pipeline_descriptor->setStencilAttachmentPixelFormat(.Stencil8)
 
     color_attachment := pipeline_descriptor->colorAttachments()->object(0)
     color_attachment->setPixelFormat(.BGRA8Unorm)
