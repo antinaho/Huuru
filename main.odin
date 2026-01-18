@@ -757,6 +757,20 @@ AlphaBlend :: Blend_Descriptor{
     alpha_op  = .Add,
 }
 
+AlphaPremultipliedBlend :: Blend_Descriptor{
+    enabled = true,
+
+    // RGB: src.rgb + dst.rgb * (1 - src.a)
+    src_color = .One,
+    dst_color = .OneMinusSrcAlpha,
+    color_op  = .Add,
+
+    // Alpha: src.a + dst.a * (1 - src.a)
+    src_alpha = .One,
+    dst_alpha = .OneMinusSrcAlpha,
+    alpha_op  = .Add,
+}
+
 // *** Camera ***
 
 Camera :: struct {
