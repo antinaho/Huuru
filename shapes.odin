@@ -20,7 +20,7 @@ batcher_init :: proc(renderer_id: Renderer_ID, allocator: runtime.Allocator) {
         indices[i*6 + 5] = u32(base + 0)
     }
 
-    tex_data, tex_width, tex_height := load_tex("assets/texture.png")
+    tex_data, tex_width, tex_height := load_tex("assets/White_1x1.png")
     
     sprite_batch^ = {
         rid           = renderer_id,

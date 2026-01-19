@@ -127,7 +127,7 @@ main :: proc() {
     })
 
     // Load and create texture
-    tex_data, tex_width, tex_height := load_tex("assets/texture.png")
+    tex_data, tex_width, tex_height := load_tex("./assets/White_1x1.png")
     texture := create_texture(renderer_id, Texture_Desc{
         width      = tex_width,
         height     = tex_height,
