@@ -299,18 +299,21 @@ metal_begin_frame :: proc(id: Renderer_ID){
     depth_attachment->setStoreAction(.DontCare)
     depth_attachment->setClearDepth(1.0)
 
-    // Maybe later if needed
-    // stencil_attachment := mtl_state.render_pass_descriptor->stencilAttachment()
-    // stencil_attachment->setTexture(mtl_state.depth_stencil_texture)
-    // stencil_attachment->setLoadAction(.Clear)
-    // stencil_attachment->setStoreAction(.DontCare)
-    // stencil_attachment->setClearStencil(0)
+
 
     // Create command buffer and render encoder
     mtl_state.command_buffer = mtl_state.command_queue->commandBuffer()
     mtl_state.render_encoder = mtl_state.command_buffer->renderCommandEncoderWithDescriptor(
         mtl_state.render_pass_descriptor,
     )
+
+
+        // Maybe later if needed
+    // stencil_attachment := mtl_state.render_pass_descriptor->stencilAttachment()
+    // stencil_attachment->setTexture(mtl_state.depth_stencil_texture)
+    // stencil_attachment->setLoadAction(.Clear)
+    // stencil_attachment->setStoreAction(.DontCare)
+    // stencil_attachment->setClearStencil(0)
 }
 
 metal_end_frame :: proc(id: Renderer_ID) {

@@ -503,20 +503,11 @@ draw_batched :: proc(batch: ^Sprite_Batch, cmd: Draw_Batched) {
     // Build model matrix: Translation * Rotation * Scale
     model := mat4_model(cmd.position, cmd.rotation, cmd.scale)
 
-    // Define local-space quad vertices (unit quad centered at origin)
-    // These will be transformed by the model matrix to world space
-    local_positions := [4]Vec4{
-        {-0.5, -0.5, 0, 1},  // bottom-left
-        { 0.5, -0.5, 0, 1},  // bottom-right
-        { 0.5,  0.5, 0, 1},  // top-right
-        {-0.5,  0.5, 0, 1},  // top-left
-    }
-
     // Transform each vertex by model matrix to get world-space positions
-    world_positions: [4]Vec3
+    world_positions: [4]Vec4
     for i in 0..<4 {
-        transformed := model * local_positions[i]
-        world_positions[i] = {transformed.x, transformed.y, transformed.z}
+        transformed := model * quad_local_positions[i]
+        world_positions[i] = {transformed.x, transformed.y, 0, 0}
     }
 
     batch.vertices[batch.vertex_count] = Sprite_Vertex {
@@ -654,8 +645,7 @@ UV_Rect :: struct {
 }
 
 Sprite_Vertex :: struct {
-    position: Vec3,
-    _:        f32,
+    position: Vec4,
     uv:       Vec2,
     color:    Color,
 }
