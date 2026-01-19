@@ -2,7 +2,6 @@ package huuru
 
 import "base:runtime"
 import stbi "vendor:stb/image"
-import "msac"
 
 SPRITES_PER_FRAME :: #config(SPRITES_PER_FRAME, 100_000)
 
@@ -23,7 +22,7 @@ batcher_init :: proc(renderer_id: Renderer_ID, allocator: runtime.Allocator) {
         indices[i*6 + 5] = u32(base + 0)
     }
 
-    tex_data, tex_width, tex_height := load_tex(msac.get_asset_path("assets/White_1x1.png"))
+    tex_data, tex_width, tex_height := load_tex(get_asset_path("assets/White_1x1.png"))
     
     sprite_batch^ = {
         rid           = renderer_id,
@@ -101,4 +100,31 @@ flush_shapes_batch :: proc() {
 
     sprite_batch.buffer_offset += sprite_batch.vertex_count
     sprite_batch.vertex_count = 0
+}
+
+import "core:os"
+import "core:path/filepath"
+import "core:strings"
+
+ASSET_BASE_PATH: string
+
+get_executable_dir :: proc(allocator := context.allocator) -> (dir: string, ok: bool) {
+    exe_path := os.args[0]
+    dir = filepath.dir(exe_path, allocator)
+
+    // when ODIN_OS == .Darwin { dir = filepath.dir(dir, allocator) } // optional
+
+    return dir, dir != ""
+}
+
+get_asset_path :: proc(rel_path: string, allocator := context.allocator) -> string {
+    if ASSET_BASE_PATH == "" {
+        exe_dir, ok := get_executable_dir(context.temp_allocator)
+        if !ok {
+            panic("Failed to find executable directory!\n")
+        }
+
+        ASSET_BASE_PATH = strings.clone(exe_dir)
+    }
+    return filepath.join({ASSET_BASE_PATH, rel_path}, allocator)
 }
