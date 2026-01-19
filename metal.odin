@@ -95,9 +95,6 @@ metal_state_size :: proc() -> int {
     return size_of(Metal_State)
 }
 
-// Default MSAA sample count (1 = disabled, 4 = 4x MSAA)
-DEFAULT_MSAA_SAMPLE_COUNT :: #config(DEFAULT_MSAA_SAMPLE_COUNT, 4)
-
 metal_init :: proc(window: Window_Provider) -> Renderer_ID {
     state, id := get_free_state()
     mtl_state := cast(^Metal_State)state
@@ -124,7 +121,7 @@ metal_init :: proc(window: Window_Provider) -> Renderer_ID {
     mtl_state.swapchain = swapchain
 
     // Set MSAA sample count and create MSAA/depth textures
-    mtl_state.sample_count = DEFAULT_MSAA_SAMPLE_COUNT
+    mtl_state.sample_count = NS.UInteger(window.sample_count)
     create_msaa_and_depth_textures(mtl_state, size.x, size.y)
 
     url := NS.URL.alloc()->initFileURLWithPath(NS.AT("shaders.metallib"))
@@ -194,6 +191,7 @@ create_msaa_and_depth_textures :: proc(state: ^Metal_State, width, height: int) 
 
     // Early out if dimensions are invalid
     if width <= 0 || height <= 0 {
+        log.error("Trying to create with negative size")
         return
     }
 
@@ -620,11 +618,6 @@ texture_format_bytes_per_pixel := [Texture_Format]int {
     .Depth32F = 16,
 }
 
-texture_filter_to_mtl := [Sampler_Filter]MTL.SamplerMinMagFilter {
-    .Nearest = .Nearest,
-    .Linear  = .Linear,
-}
-
 texture_wrap_to_mtl := [Sampler_Wrap_Mode]MTL.SamplerAddressMode {
     .Repeat       = .Repeat,
     .ClampToEdge  = .ClampToEdge,
@@ -759,6 +752,11 @@ metal_draw_instanced :: proc(id: Renderer_ID, buffer_id: Buffer_ID, index_count,
 Metal_Sampler :: struct {
     is_alive: bool,
     sampler: ^MTL.SamplerState,
+}
+
+texture_filter_to_mtl := [Sampler_Filter]MTL.SamplerMinMagFilter {
+    .Nearest = .Nearest,
+    .Linear  = .Linear,
 }
 
 metal_get_free_sampler :: proc(mtl_state: ^Metal_State) -> Sampler_ID {

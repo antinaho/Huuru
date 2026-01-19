@@ -97,6 +97,7 @@ main :: proc() {
             // Return native window handle (NSWindow* on macOS)
             return nil
         },
+        sample_count = 1,
     }
 
     // Initialize a renderer for the window
@@ -277,6 +278,7 @@ Window_Provider :: struct {
     get_native_handle: proc(data: rawptr) -> rawptr,
     is_visible:        proc(data: rawptr) -> bool,
     is_minimized:      proc(data: rawptr) -> bool,
+    sample_count:      int,
 }
 
 // *** Render Command ***
