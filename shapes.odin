@@ -2,10 +2,13 @@ package huuru
 
 import "base:runtime"
 import stbi "vendor:stb/image"
+import "msac"
 
 SPRITES_PER_FRAME :: #config(SPRITES_PER_FRAME, 100_000)
 
 sprite_batch: ^Sprite_Batch
+
+
 
 batcher_init :: proc(renderer_id: Renderer_ID, allocator: runtime.Allocator) {
     sprite_batch = new(Sprite_Batch, allocator)
@@ -20,7 +23,7 @@ batcher_init :: proc(renderer_id: Renderer_ID, allocator: runtime.Allocator) {
         indices[i*6 + 5] = u32(base + 0)
     }
 
-    tex_data, tex_width, tex_height := load_tex("assets/White_1x1.png")
+    tex_data, tex_width, tex_height := load_tex(msac.get_asset_path("assets/White_1x1.png"))
     
     sprite_batch^ = {
         rid           = renderer_id,
