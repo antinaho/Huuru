@@ -27,8 +27,12 @@ Shape_Vertex :: struct {
 }
 
 Shape_Kind :: enum u32 {
-    Rect   = 0,
-    Circle = 1,
+    Rect            = 0,
+    Circle          = 1,
+    Donut           = 2,
+    Triangle        = 3,
+    Hollow_Rect     = 4,
+    Hollow_Triangle = 5,
 }
 
 Shape_Instance :: struct #align(16) {
@@ -133,6 +137,25 @@ draw_rect :: proc(position: Vec2, rotation: f32, size: Vec2, color: Color) {
 
 draw_circle :: proc(position: Vec2, radius: f32, color: Color) {
     draw_shape(position, 0, {radius * 2, radius * 2}, color, .Circle)
+}
+
+// inner_radius_ratio: 0-1, ratio of inner hole to outer radius (e.g., 0.5 = hole is half the size)
+draw_donut :: proc(position: Vec2, radius: f32, inner_radius_ratio: f32, color: Color) {
+    draw_shape(position, 0, {radius * 2, radius * 2}, color, .Donut, {inner_radius_ratio, 0, 0, 0})
+}
+
+draw_triangle :: proc(position: Vec2, rotation: f32, size: f32, color: Color) {
+    draw_shape(position, rotation, {size, size}, color, .Triangle)
+}
+
+// thickness: 0-1, border thickness relative to size (e.g., 0.1 = 10% of size)
+draw_hollow_rect :: proc(position: Vec2, rotation: f32, size: Vec2, thickness: f32, color: Color) {
+    draw_shape(position, rotation, size, color, .Hollow_Rect, {thickness, 0, 0, 0})
+}
+
+// thickness: 0-1, border thickness relative to size
+draw_hollow_triangle :: proc(position: Vec2, rotation: f32, size: f32, thickness: f32, color: Color) {
+    draw_shape(position, rotation, {size, size}, color, .Hollow_Triangle, {thickness, 0, 0, 0})
 }
 
 flush_shapes_batch :: proc() {
