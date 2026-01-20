@@ -155,21 +155,6 @@ main :: proc() {
         // Full texture UV rect
         full_uv := UV_Rect{ min = {0, 0}, max = {1, 1} }
         
-        // Draw a grid of sprites
-        for y in 0..<4 {
-            for x in 0..<4 {
-                draw_batched(sprite_batch, Draw_Batched{
-                    texture  = texture,
-                    position = {f32(x) * 100 + 50, f32(y) * 100 + 50, 0},
-                    uv_rect = full_uv,
-                    scale     = {64, 64, 1},
-                    color    = {255, 255, 255, 255},
-                })
-            }
-        }
-
-        // Flush remaining sprites in batch
-        flush(sprite_batch)
 
         cmd_end_frame({renderer_id})
 
@@ -226,7 +211,11 @@ Vertex_Format :: enum {
     Float2,
     Float3,
     Float4,
+
+    UByte,
     UByte4,
+
+    UInt32,
 }
 
 Vertex_Attribute :: struct {
@@ -294,6 +283,7 @@ Render_Command :: union {
     
     Render_Command_End_Frame,
     Render_Command_Draw_Indexed,
+    Render_Command_Draw_Indexed_Instanced
 }
 
 Render_Command_Begin_Frame :: struct {
@@ -446,6 +436,7 @@ Index_Type :: enum {
 
 Primitive_Type :: enum {
     Triangle,
+    Line,
 }
 
 Render_Command_Draw_Simple :: struct {
@@ -479,7 +470,21 @@ Render_Command_Draw_Indexed :: struct {
     index_offset:  uint,
 }
 
+Render_Command_Draw_Indexed_Instanced :: struct {
+    rid:           Renderer_ID,
+
+    index_buffer: Buffer_ID,
+    index_count:  uint,
+    index_buffer_offset: uint,
+    index_type: Index_Type,
+
+    instance_count: uint,
+
+    primitive: Primitive_Type,
+}
+
 cmd_draw_indexed :: proc(cmd: Render_Command_Draw_Indexed) { insert_render_command(cmd) }
+cmd_draw_indexed_instances :: proc(cmd: Render_Command_Draw_Indexed_Instanced) { insert_render_command(cmd) }
 
 Draw_Batched :: struct {
     texture:  Texture_ID,
@@ -488,78 +493,6 @@ Draw_Batched :: struct {
     scale:    Vec3,
     uv_rect:  UV_Rect,
     color:    Color,
-}
-
-draw_batched :: proc(batch: ^Sprite_Batch, cmd: Draw_Batched) {
-    if batch.texture != cmd.texture {
-        flush(batch)
-        batch.texture = cmd.texture
-    }
-
-    if batch.vertex_count + 4 >= len(batch.vertices) {
-        flush(batch)
-    }
-
-    // Build model matrix: Translation * Rotation * Scale
-    model := mat4_model(cmd.position, cmd.rotation, cmd.scale)
-
-    // Transform each vertex by model matrix to get world-space positions
-    world_positions: [4]Vec4
-    for i in 0..<4 {
-        transformed := model * quad_local_positions[i]
-        world_positions[i] = {transformed.x, transformed.y, 0, 0}
-    }
-
-    batch.vertices[batch.vertex_count] = Sprite_Vertex {
-        position = world_positions[0],
-        uv = cmd.uv_rect.min,
-        color = cmd.color,
-    }
-
-    batch.vertices[batch.vertex_count + 1] = Sprite_Vertex {
-        position = world_positions[1],
-        uv = {cmd.uv_rect.max.x, cmd.uv_rect.min.y},
-        color = cmd.color,
-    }
-
-    batch.vertices[batch.vertex_count + 2] = Sprite_Vertex {
-        position = world_positions[2],
-        uv = cmd.uv_rect.max,
-        color = cmd.color,
-    }
-
-    batch.vertices[batch.vertex_count + 3] = Sprite_Vertex {
-        position = world_positions[3],
-        uv = {cmd.uv_rect.min.x, cmd.uv_rect.max.y},
-        color = cmd.color,
-    }
-
-    batch.vertex_count += 4
-}
-
-flush :: proc(batch: ^Sprite_Batch) {
-    if batch.vertex_count == 0 {
-        return
-    }
-
-    byte_offset := uint(batch.buffer_offset * size_of(Sprite_Vertex))
-
-    push_buffer(batch.rid, batch.vertex_buffer, raw_data(batch.vertices[:]), byte_offset, size_of(Sprite_Vertex) * batch.vertex_count, .Dynamic)
-    cmd_bind_texture({id=batch.rid, texture_id=batch.texture, slot=batch.texture_slot})
-    cmd_draw_indexed(Render_Command_Draw_Indexed{
-        rid = batch.rid,
-        vertex_id = batch.vertex_buffer,
-        index_id = batch.index_buffer,
-        primitive = .Triangle,
-        vertex_offset = byte_offset,
-        vertex_index = 0,
-        index_offset = 0,
-        index_type = .UInt32,
-        index_count = uint(batch.vertex_count / 4) * 6
-    })
-
-    batch.buffer_offset += batch.vertex_count
-    batch.vertex_count = 0
 }
 
 // Shader
@@ -653,8 +586,9 @@ Sprite_Vertex :: struct {
 MAX_SPRITES :: 4_096
 Sprite_Batch :: struct {
     vertices:      [MAX_SPRITES * 4]Sprite_Vertex,
-    vertex_buffer: Buffer_ID,
-    index_buffer:  Buffer_ID,
+    vertex_buffer:   Buffer_ID,
+    index_buffer:    Buffer_ID,
+    instance_buffer: Buffer_ID,
     
     buffer_offset: int,
     vertex_count:  int,

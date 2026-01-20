@@ -153,6 +153,8 @@ metal_present :: proc() {
                 metal_draw_indexed(cmd.rid, cmd.vertex_id, cmd.vertex_offset, cmd.vertex_index, cmd.primitive, cmd.index_count, cmd.index_type, cmd.index_id, cmd.index_offset)
             case Render_Command_Bind_Sampler:
                 metal_bind_sampler(cmd.id, cmd.sampler, cmd.slot)
+            case Render_Command_Draw_Indexed_Instanced:
+                metal_draw_index_instanced(cmd.rid, cmd.index_buffer, cmd.index_count, cmd.index_buffer_offset, cmd.instance_count, cmd.index_type, cmd.primitive)
         }
     }
 }
@@ -350,7 +352,11 @@ metal_vertex_format_to_mtl := [Vertex_Format]MTL.VertexFormat {
     .Float2 = .Float2,
     .Float3 = .Float3,
     .Float4 = .Float4,
+
+    .UByte  = .UChar,
     .UByte4 = .UChar4,
+
+    .UInt32 = .UInt,
 }
 
 metal_blend_factor := [Blend_Factor]MTL.BlendFactor {
@@ -700,6 +706,7 @@ index_type_to_MTL_type := [Index_Type]MTL.IndexType {
 
 primitive_type_to_MTL_primitive := [Primitive_Type]MTL.PrimitiveType {
     .Triangle = .Triangle,
+    .Line     = .Line,
 }
 
 metal_draw_simple :: proc(renderer_id: Renderer_ID, buffer_id: Buffer_ID, buffer_offset: uint, buffer_index: uint, primitive: Primitive_Type, vertex_start: uint, vertex_count: uint) {
@@ -727,6 +734,26 @@ metal_draw_indexed :: proc(id: Renderer_ID, vertex_buffer_id: Buffer_ID, buffer_
         indexType         = index_type_to_MTL_type[index_type],
         indexBuffer       = mtl_index_buffer,
         indexBufferOffset = NS.UInteger(index_buffer_offset),
+    )
+}
+
+metal_draw_index_instanced :: proc(id: Renderer_ID, index_buffer: Buffer_ID, index_count, index_buffer_offset, instance_count: uint, index_type: Index_Type, primitive: Primitive_Type = .Triangle) {
+    assert(mtl_state != nil, "State not set")
+    if mtl_state.skip_frame do return
+
+    assert(int(index_buffer) < MAX_BUFFERS && int(index_buffer) >= 0, "Invalid Buffer_ID")
+    assert(mtl_state.buffers[index_buffer].is_alive, "Cannot draw with destroyed buffer")
+    assert(mtl_state.buffers[index_buffer].type == .Vertex, "Buffer must be a vertex buffer")
+
+    buffer := mtl_state.buffers[index_buffer].buffer
+
+    mtl_state.render_encoder->drawIndexedPrimitivesWithInstanceCount(
+        primitive_type_to_MTL_primitive[primitive],
+        NS.UInteger(index_count),
+        index_type_to_MTL_type[index_type],
+        buffer,
+        NS.UInteger(index_buffer_offset),
+        NS.UInteger(instance_count)
     )
 }
 
