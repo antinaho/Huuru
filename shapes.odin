@@ -31,13 +31,14 @@ Shape_Kind :: enum u32 {
     Circle = 1,
 }
 
-Shape_Instance :: struct {
-    position: Vec2,
-    scale:    Vec2,
-    rotation: f32,
-    kind:     Shape_Kind,
-    color:    Color,
-    params:   Vec4,
+Shape_Instance :: struct #align(16) {
+    position: Vec2,      // offset 0
+    scale:    Vec2,      // offset 8
+    params:   Vec4,      // offset 16
+    rotation: f32,       // offset 32
+    kind:     Shape_Kind,// offset 36
+    color:    Color,     // offset 40
+    _pad:     u32,       // offset 44 (total 48, multiple of 16)
 }
 
 shape_pipeline :: proc(renderer_id: Renderer_ID) -> Pipeline_ID {
@@ -55,12 +56,12 @@ shape_pipeline :: proc(renderer_id: Renderer_ID) -> Pipeline_ID {
                 {format = .Float2, offset = offset_of(Shape_Vertex, uv),       binding = 0},
                 
                 // Instance attributes (binding 1)
-                {format = .Float2, offset = offset_of(Shape_Instance, position), binding = 1},
-                {format = .Float2, offset = offset_of(Shape_Instance, scale),    binding = 1},
-                {format = .Float,  offset = offset_of(Shape_Instance, rotation), binding = 1},
-                {format = .UInt32, offset = offset_of(Shape_Instance, kind),     binding = 1},
-                {format = .UByte4, offset = offset_of(Shape_Instance, color),    binding = 1},
-                {format = .Float4, offset = offset_of(Shape_Instance, params),   binding = 1},
+                {format = .Float2, offset = offset_of(Shape_Instance, position), binding = 1},  // attr 2
+                {format = .Float2, offset = offset_of(Shape_Instance, scale),    binding = 1},  // attr 3
+                {format = .Float4, offset = offset_of(Shape_Instance, params),   binding = 1},  // attr 4
+                {format = .UInt32, offset = offset_of(Shape_Instance, kind),     binding = 1},  // attr 5
+                {format = .Float,  offset = offset_of(Shape_Instance, rotation), binding = 1},  // attr 6
+                {format = .UByte4, offset = offset_of(Shape_Instance, color),    binding = 1},  // attr 7
             },
             type = Pipeline_Desc_Metal{
                 vertex_entry   = "shape_vertex",
@@ -82,6 +83,11 @@ QUAD_VERTICES :: [4]Shape_Vertex {
 }
 
 QUAD_INDICES :: [6]u32 {0, 1, 2, 2, 3, 0}
+
+shape_batch_begin_frame :: proc() {
+    shape_batch.instance_offset = 0
+    shape_batch.instance_count = 0
+}
 
 shape_batcher_init :: proc(renderer_id: Renderer_ID, allocator: runtime.Allocator) {
     shape_batch = new(Shape_Batch, allocator)
