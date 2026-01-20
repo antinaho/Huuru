@@ -52,8 +52,7 @@ shape_pipeline :: proc(renderer_id: Renderer_ID) -> Pipeline_ID {
         renderer_id,
         Pipeline_Desc {
             layouts = {
-                {stride = size_of(Shape_Vertex),   step_rate = .PerVertex},    // buffer 0
-                {stride = size_of(Shape_Instance), step_rate = .PerInstance},  // buffer 1
+                {stride = size_of(Shape_Vertex), step_rate = .PerVertex},  // buffer 0 (vertices only)
             },
             attributes = {
                 // Vertex attributes (buffer 0)

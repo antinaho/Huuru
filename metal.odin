@@ -743,7 +743,6 @@ metal_draw_index_instanced :: proc(id: Renderer_ID, index_buffer: Buffer_ID, ind
 
     assert(int(index_buffer) < MAX_BUFFERS && int(index_buffer) >= 0, "Invalid Buffer_ID")
     assert(mtl_state.buffers[index_buffer].is_alive, "Cannot draw with destroyed buffer")
-    assert(mtl_state.buffers[index_buffer].type == .Vertex, "Buffer must be a vertex buffer")
 
     buffer := mtl_state.buffers[index_buffer].buffer
 
@@ -758,23 +757,7 @@ metal_draw_index_instanced :: proc(id: Renderer_ID, index_buffer: Buffer_ID, ind
 }
 
 metal_draw_instanced :: proc(id: Renderer_ID, buffer_id: Buffer_ID, index_count, index_buffer_offset, instance_count: uint, index_type: Index_Type, primitive: Primitive_Type) {
-    assert(mtl_state != nil, "State not set")
-    if mtl_state.skip_frame do return
-    
-    assert(int(buffer_id) < MAX_BUFFERS && int(buffer_id) >= 0, "Invalid Buffer_ID")
-    assert(mtl_state.buffers[buffer_id].is_alive, "Cannot draw with destroyed buffer")
-    assert(mtl_state.buffers[buffer_id].type == .Vertex, "Buffer must be a vertex buffer")
-
-    buffer := mtl_state.buffers[buffer_id].buffer
-    
-    mtl_state.render_encoder->drawIndexedPrimitivesWithInstanceCount(
-        primitive_type_to_MTL_primitive[primitive],
-        NS.UInteger(index_count),
-        index_type_to_MTL_type[index_type],
-        buffer,
-        NS.UInteger(index_buffer_offset),
-        NS.UInteger(instance_count)
-    )
+    assert(false, "Not implemented")
 }
 
 // *** Texture Sampler ***
