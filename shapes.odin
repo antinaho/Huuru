@@ -63,7 +63,7 @@ shape_pipeline :: proc(renderer_id: Renderer_ID) -> Pipeline_ID {
                 vertex_entry   = "shape_vertex",
                 fragment_entry = "shape_fragment",
             },
-            blend = AlphaPremultipliedBlend
+            blend = AlphaBlend
         }
     )
 
