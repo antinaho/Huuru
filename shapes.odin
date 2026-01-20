@@ -34,12 +34,17 @@ Shape_Kind :: enum u32 {
 Shape_Instance :: struct #align(16) {
     position: Vec2,      // offset 0
     scale:    Vec2,      // offset 8
+
     params:   Vec4,      // offset 16
+    
     rotation: f32,       // offset 32
+    
     kind:     Shape_Kind,// offset 36
     color:    Color,     // offset 40
     _pad:     u32,       // offset 44 (total 48, multiple of 16)
 }
+
+#assert(size_of(Shape_Instance) % 16 == 0)
 
 shape_pipeline :: proc(renderer_id: Renderer_ID) -> Pipeline_ID {
 
@@ -47,21 +52,13 @@ shape_pipeline :: proc(renderer_id: Renderer_ID) -> Pipeline_ID {
         renderer_id,
         Pipeline_Desc {
             layouts = {
-                {stride = size_of(Shape_Vertex),   step_rate = .PerVertex},
-                {stride = size_of(Shape_Instance), step_rate = .PerInstance},
+                {stride = size_of(Shape_Vertex),   step_rate = .PerVertex},    // buffer 0
+                {stride = size_of(Shape_Instance), step_rate = .PerInstance},  // buffer 1
             },
             attributes = {
-                // Vertex attributes (binding 0)
-                {format = .Float2, offset = offset_of(Shape_Vertex, position), binding = 0},
-                {format = .Float2, offset = offset_of(Shape_Vertex, uv),       binding = 0},
-                
-                // Instance attributes (binding 1)
-                {format = .Float2, offset = offset_of(Shape_Instance, position), binding = 1},  // attr 2
-                {format = .Float2, offset = offset_of(Shape_Instance, scale),    binding = 1},  // attr 3
-                {format = .Float4, offset = offset_of(Shape_Instance, params),   binding = 1},  // attr 4
-                {format = .UInt32, offset = offset_of(Shape_Instance, kind),     binding = 1},  // attr 5
-                {format = .Float,  offset = offset_of(Shape_Instance, rotation), binding = 1},  // attr 6
-                {format = .UByte4, offset = offset_of(Shape_Instance, color),    binding = 1},  // attr 7
+                // Vertex attributes (buffer 0)
+                {format = .Float2, offset = offset_of(Shape_Vertex, position), binding = 0},  // attr 0
+                {format = .Float2, offset = offset_of(Shape_Vertex, uv),       binding = 0},  // attr 1
             },
             type = Pipeline_Desc_Metal{
                 vertex_entry   = "shape_vertex",
@@ -159,13 +156,13 @@ flush_shapes_batch :: proc() {
     cmd_bind_vertex_buffer({
         id        = shape_batch.rid,
         buffer_id = shape_batch.vertex_buffer,
-        index     = 0,
+        index     = 0,  // buffer 0 for vertices
         offset    = 0,
     })
     cmd_bind_vertex_buffer({
         id        = shape_batch.rid,
         buffer_id = shape_batch.instance_buffer,
-        index     = 1,
+        index     = 1,  // buffer 1 for instances
         offset    = byte_offset,
     })
     
