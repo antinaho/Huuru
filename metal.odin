@@ -504,7 +504,7 @@ metal_create_buffer_zeros :: proc(id: Renderer_ID, length: int, type: Buffer_Typ
         case .Dynamic:
             storage_mode = {.StorageModeManaged}
         case .Static:
-            assert(false, "Can't create empty private buffer")
+            storage_mode = {.StorageModePrivate}
     }
 
     mtl_buffer := mtl_state.device->newBufferWithLength(
