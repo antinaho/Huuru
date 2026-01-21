@@ -352,6 +352,7 @@ Buffer_Type :: enum {
 
 Buffer_Access :: enum {
     Dynamic,
+    Static,
 }
 
 create_buffer :: proc(id: Renderer_ID, data: rawptr, length: int, type: Buffer_Type, access: Buffer_Access) -> Buffer_ID {

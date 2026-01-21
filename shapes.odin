@@ -45,7 +45,7 @@ Shape_Instance :: struct #align(16) {
     
     kind:     Shape_Kind,// offset 36
     color:    Color,     // offset 40
-    _pad:     u32,       // offset 44 (total 48, multiple of 16)
+    _pad:     u32,       // offset 44 (total 48)
 }
 
 #assert(size_of(Shape_Instance) % 16 == 0)
@@ -56,7 +56,7 @@ shape_pipeline :: proc(renderer_id: Renderer_ID) -> Pipeline_ID {
         renderer_id,
         Pipeline_Desc {
             layouts = {
-                {stride = size_of(Shape_Vertex), step_rate = .PerVertex},  // buffer 0 (vertices only)
+                {stride = size_of(Shape_Vertex), step_rate = .PerVertex},  // buffer 0
             },
             attributes = {
                 // Vertex attributes (buffer 0)
@@ -105,8 +105,8 @@ shape_batcher_init :: proc(renderer_id: Renderer_ID, allocator: runtime.Allocato
             format = .RGBA8
         }),
         texture_slot    = 0,
-        vertex_buffer   = create_buffer(renderer_id, raw_data(quad_verts[:]), size_of(QUAD_VERTICES), .Vertex, .Dynamic), // Move to static soon
-        index_buffer    = create_buffer(renderer_id, raw_data(quad_indices[:]), size_of(QUAD_INDICES), .Index, .Dynamic), // Move to static soon
+        vertex_buffer   = create_buffer(renderer_id, raw_data(quad_verts[:]), size_of(QUAD_VERTICES), .Vertex, .Static), // Move to static soon
+        index_buffer    = create_buffer(renderer_id, raw_data(quad_indices[:]), size_of(QUAD_INDICES), .Index, .Static), // Move to static soon
         instance_buffer = create_buffer_zeros(renderer_id, SHAPES_PER_FRAME * size_of(Shape_Instance), .Vertex, .Dynamic),
     }
 
