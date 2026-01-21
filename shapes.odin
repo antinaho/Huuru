@@ -74,6 +74,17 @@ shape_pipeline :: proc(renderer_id: Renderer_ID) -> Pipeline_ID {
     return pipeline
 }
 
+shape_sampler :: proc(renderer_id: Renderer_ID) -> Sampler_ID {
+    sampler := create_sampler(renderer_id, Sampler_Desc {
+        mag_filter = .Linear,
+        min_filter = .Linear,
+        wrap_s = .ClampToEdge,
+        wrap_t = .ClampToEdge,
+    })
+
+    return sampler
+}
+
 // Unit quad data
 QUAD_VERTICES :: [4]Shape_Vertex {
     {position = {-0.5, -0.5}, uv = {0, 0}},  // bottom-left
