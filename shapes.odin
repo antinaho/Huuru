@@ -20,10 +20,10 @@ Shape_Batch :: struct {
 
     // Texture registry for bindless rendering
     textures:         [MAX_SHAPE_TEXTURES]Texture_ID,
-    texture_count:    u16,
+    texture_count:    u32,
     argument_buffer:  Argument_Buffer_ID,
-    textures_dirty:   bool,  // true when textures need to be re-encoded
-
+    textures_dirty:   bool,
+    
     rid:             Renderer_ID,
 }
 
@@ -39,23 +39,22 @@ Shape_Kind :: enum u32 {
     Triangle        = 3,
     Hollow_Rect     = 4,
     Hollow_Triangle = 5,
-    Textured_Rect   = 6,  // Uses custom UVs and texture_index for texture sampling
+    Textured_Rect   = 6,
 }
 
 Shape_Instance :: struct #align(16) {
-    position:      Vec2,       // offset 0
-    scale:         Vec2,       // offset 8
+    position:      Vec2,       // offset 0 total 8 
+    scale:         Vec2,       // offset 8 total 16
 
-    params:        Vec4,       // offset 16
+    params:        Vec4,       // offset 16 total 32
 
-    uv_min:        Vec2,       // offset 32 - bottom-left UV for texture sampling
-    uv_max:        Vec2,       // offset 40 - top-right UV for texture sampling
+    uv_min:        Vec2,       // offset 32 total 40
+    uv_max:        Vec2,       // offset 40 total 48
 
-    rotation:      f32,        // offset 48
-    kind:          Shape_Kind, // offset 52
-    texture_index: u16,        // offset 56 - index into bindless texture array
-    color:         Color,      // offset 58
-    _pad:          u16,        // offset 62 (total 64)
+    color:         Color,      // offset 48 total 52
+    rotation:      f32,        // offset 52 total 56
+    kind:          Shape_Kind, // offset 56 total 60
+    texture_index: u32,        // offset 60 total 64
 }
 
 #assert(size_of(Shape_Instance) == 64)
@@ -117,8 +116,8 @@ shape_batcher_init :: proc(renderer_id: Renderer_ID, allocator: runtime.Allocato
     quad_verts := QUAD_VERTICES
     quad_indices := QUAD_INDICES
 
-    // Create the argument buffer for bindless textures
-    // Buffer index 3 matches [[buffer(3)]] in the fragment shader
+    // Buffer index 3
+    // TODO abstract so not calling metal directly
     arg_buffer := metal_create_argument_buffer(renderer_id, "shape_fragment", 3, MAX_SHAPE_TEXTURES)
 
     shape_batch^ = {
@@ -130,8 +129,7 @@ shape_batcher_init :: proc(renderer_id: Renderer_ID, allocator: runtime.Allocato
         textures_dirty   = true,
     }
 
-    // Register the default 1x1 white texture at index 0
-    // This is used by SDF shapes and as a fallback for solid colors
+    // Default 1x1 white texture at index 0
     tex_data, tex_width, tex_height := load_tex(get_path_to("assets/White_1x1.png"))
     white_texture := create_texture(renderer_id, Texture_Desc {
         data   = tex_data,
@@ -139,22 +137,20 @@ shape_batcher_init :: proc(renderer_id: Renderer_ID, allocator: runtime.Allocato
         height = tex_height,
         format = .RGBA8,
     })
-    stbi.image_free(cast([^]byte)tex_data)
-    
-    // Register white texture at index 0 (guaranteed to be index 0 since registry is empty)
+    defer stbi.image_free(cast([^]byte)tex_data)
     register_shape_texture(white_texture)
 }
 
 // Register a texture for use with shape drawing.
 // Returns the texture index to use with draw_textured_rect or draw_shape.
 // Index 0 is reserved for the default 1x1 white texture.
-register_shape_texture :: proc(texture: Texture_ID) -> u16 {
+register_shape_texture :: proc(texture: Texture_ID) -> u32 {
     assert(shape_batch.texture_count < MAX_SHAPE_TEXTURES, "Shape texture registry full")
     
     index := shape_batch.texture_count
     shape_batch.textures[index] = texture
     shape_batch.texture_count += 1
-    shape_batch.textures_dirty = true  // Mark for re-encoding into argument buffer
+    shape_batch.textures_dirty = true
     
     return index
 }
@@ -166,6 +162,7 @@ update_shape_textures :: proc() {
         return
     }
     
+    // TODO move to non metal
     metal_encode_textures(
         shape_batch.rid,
         shape_batch.argument_buffer,
@@ -176,7 +173,7 @@ update_shape_textures :: proc() {
 }
 
 // Generic shape drawing
-draw_shape :: proc(position: Vec2, rotation: f32, scale: Vec2, color: Color, kind: Shape_Kind, params: Vec4 = {}, uv_min: Vec2 = {0, 0}, uv_max: Vec2 = {1, 1}, texture_index: u16 = 0) {
+draw_shape :: proc(position: Vec2, rotation: f32, scale: Vec2, color: Color, kind: Shape_Kind, params: Vec4 = {}, uv_min: Vec2 = {0, 0}, uv_max: Vec2 = {1, 1}, texture_index: u32 = 0) {
     if shape_batch.instance_count >= SHAPES_PER_FRAME {
         flush_shapes_batch()
     }
@@ -195,7 +192,6 @@ draw_shape :: proc(position: Vec2, rotation: f32, scale: Vec2, color: Color, kin
     shape_batch.instance_count += 1
 }
 
-// Convenience wrappers
 draw_rect :: proc(position: Vec2, rotation: f32, size: Vec2, color: Color) {
     draw_shape(position, rotation, size, color, .Rect)
 }
@@ -204,7 +200,6 @@ draw_circle :: proc(position: Vec2, radius: f32, color: Color) {
     draw_shape(position, 0, {radius * 2, radius * 2}, color, .Circle)
 }
 
-// inner_radius_ratio: 0-1, ratio of inner hole to outer radius (e.g., 0.5 = hole is half the size)
 draw_donut :: proc(position: Vec2, radius: f32, inner_radius_ratio: f32, color: Color) {
     draw_shape(position, 0, {radius * 2, radius * 2}, color, .Donut, {inner_radius_ratio, 0, 0, 0})
 }
@@ -213,12 +208,10 @@ draw_triangle :: proc(position: Vec2, rotation: f32, size: f32, color: Color) {
     draw_shape(position, rotation, {size, size}, color, .Triangle)
 }
 
-// thickness: 0-1, border thickness relative to size (e.g., 0.1 = 10% of size)
 draw_hollow_rect :: proc(position: Vec2, rotation: f32, size: Vec2, thickness: f32, color: Color) {
     draw_shape(position, rotation, size, color, .Hollow_Rect, {thickness, 0, 0, 0})
 }
 
-// thickness: 0-1, border thickness relative to size
 draw_hollow_triangle :: proc(position: Vec2, rotation: f32, size: f32, thickness: f32, color: Color) {
     draw_shape(position, rotation, {size, size}, color, .Hollow_Triangle, {thickness, 0, 0, 0})
 }
@@ -233,7 +226,7 @@ draw_textured_rect :: proc(
     position: Vec2,
     rotation: f32,
     size: Vec2,
-    texture_index: u16,
+    texture_index: u32,
     uv_rect: UV_Rect,
     color: Color = WHITE,
 ) {
@@ -243,60 +236,10 @@ draw_textured_rect :: proc(
         size, 
         color, 
         .Textured_Rect, 
-        {}, // no params needed
+        {}, 
         uv_rect.min,
         uv_rect.max,
         texture_index,
-    )
-}
-
-// Draw an entire texture (convenience wrapper for draw_textured_rect with full UV rect)
-// texture_index: index returned by register_shape_texture()
-// color: tint color (use WHITE for no tint)
-draw_texture :: proc(
-    position: Vec2,
-    rotation: f32,
-    size: Vec2,
-    texture_index: u16,
-    color: Color = WHITE,
-) {
-    draw_textured_rect(
-        position,
-        rotation,
-        size,
-        texture_index,
-        UV_Rect{min = {0, 0}, max = {1, 1}},
-        color,
-    )
-}
-
-// Draw a sprite from an atlas/spritesheet
-// texture_index: index returned by register_shape_texture()
-// sprite_pos: top-left corner of sprite in pixels
-// sprite_size: size of sprite in pixels
-// texture_size: total size of the texture/atlas in pixels
-// color: tint color (use WHITE for no tint)
-draw_sprite :: proc(
-    position: Vec2,
-    rotation: f32,
-    size: Vec2,
-    texture_index: u16,
-    sprite_pos: Vec2,
-    sprite_size: Vec2,
-    texture_size: Vec2,
-    color: Color = WHITE,
-) {
-    // Convert pixel coordinates to UV coordinates
-    uv_min := sprite_pos / texture_size
-    uv_max := (sprite_pos + sprite_size) / texture_size
-    
-    draw_textured_rect(
-        position,
-        rotation,
-        size,
-        texture_index,
-        UV_Rect{min = uv_min, max = uv_max},
-        color,
     )
 }
 
@@ -320,10 +263,11 @@ flush_shapes_batch :: proc() {
     )
     
     // Bind the argument buffer containing all registered textures (fragment buffer slot 3)
+    // TODO move argument buffer to render agnostic proc
     cmd_bind_argument_buffer({
         id                 = shape_batch.rid,
         argument_buffer_id = shape_batch.argument_buffer,
-        slot               = 3,  // matches [[buffer(3)]] in fragment shader
+        slot               = 3,  // [[buffer(3)]] in fragment shader
     })
     
     cmd_bind_vertex_buffer({

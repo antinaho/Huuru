@@ -169,7 +169,6 @@ main :: proc() {
         draw_hollow_rect({200, 100}, 0, {80, 80}, 0.1, {255, 100, 255, 255})  // Pink hollow rect
 
         // 2. Draw textured rectangle (entire texture)
-        draw_texture({0, -50}, 0, {128, 128}, my_texture_index)
 
         // 3. Draw textured rectangle with custom UVs (e.g., from sprite atlas)
         draw_textured_rect(
@@ -180,21 +179,6 @@ main :: proc() {
             UV_Rect{min = {0, 0}, max = {0.5, 0.5}}, // top-left quarter of texture
             {255, 200, 200, 255},                   // tint color
         )
-
-        // 4. Draw sprite from atlas using pixel coordinates
-        draw_sprite(
-            {150, -50},                             // position
-            0,                                       // rotation
-            {64, 64},                                // display size
-            my_texture_index,                        // texture index
-            {0, 0},                                  // sprite position in pixels (top-left)
-            {f32(tex_width), f32(tex_height)},       // sprite size in pixels
-            {f32(tex_width), f32(tex_height)},       // texture size in pixels
-        )
-
-        // 5. Draw with rotation and tint
-        rotation := f32(frame) * 0.02
-        draw_texture({0, -180}, rotation, {100, 100}, my_texture_index, {100, 200, 255, 255})
 
         // Flush all batched shapes to GPU
         flush_shapes_batch()
