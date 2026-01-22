@@ -21,6 +21,10 @@ Color :: [4]u8
 
 BACKGROUND_COLOR :: Color {185, 105, 80, 255}
 
+// Common colors
+WHITE :: Color {255, 255, 255, 255}
+BLACK :: Color {0, 0, 0, 255}
+
 when RENDERER_CHOISE == "" {
     when ODIN_OS == .Darwin {
 	    DEFAULT_RENDERER_API :: METAL_RENDERER_API
@@ -97,38 +101,28 @@ main :: proc() {
             // Return native window handle (NSWindow* on macOS)
             return nil
         },
+        is_visible = proc(window_id: rawptr) -> bool {
+            return true
+        },
+        is_minimized = proc(window_id: rawptr) -> bool {
+            return false
+        },
         sample_count = 1,
     }
 
     // Initialize a renderer for the window
     renderer_id := init_renderer(window)
 
-    Vertex :: struct {
-        position: [4]f32,
-        color:    [4]f32,
-    }
+    // Initialize the shape batcher (handles bindless textures automatically)
+    shape_batcher_init(renderer_id, context.allocator)
 
-    // Create pipeline
-    pipeline := create_pipeline(renderer_id, Pipeline_Desc{
-        type = Pipeline_Desc_Metal{
-            vertex_entry   = "hello_triangle_vertex",
-            fragment_entry = "hello_triangle_fragment",
-        },
-        layouts = {
-            Vertex_Layout{
-                stride    = size_of(Vertex),
-                step_rate = .PerVertex,
-            },
-        },
-        attributes = {
-            Vertex_Attribute{ format = .Float4, offset = offset_of(Vertex, position), binding = 0 },
-            Vertex_Attribute{ format = .Float4, offset = offset_of(Vertex, color),    binding = 0 },
-        },
-    })
+    // Create shape pipeline
+    pipeline := shape_pipeline(renderer_id)
+    sampler := shape_sampler(renderer_id)
 
-    // Load and create texture
+    // Load and register a custom texture for textured drawing
     tex_data, tex_width, tex_height := load_tex("./assets/White_1x1.png")
-    texture := create_texture(renderer_id, Texture_Desc{
+    my_texture := create_texture(renderer_id, Texture_Desc{
         width      = tex_width,
         height     = tex_height,
         format     = .RGBA8,
@@ -136,36 +130,89 @@ main :: proc() {
     })
     stbi.image_free(cast([^]byte)tex_data)
 
-    sprite_batch := sprite_batch_init(renderer_id, texture, 0)
+    // Register the texture with the shape system - returns index for drawing
+    // Index 0 is reserved for the built-in white texture (used by SDF shapes)
+    my_texture_index := register_shape_texture(my_texture)
 
-    // Draw loop
-    running := true
-    frame: u32 = 0
+    // Camera setup
     camera := Camera {
         aspect_ratio = 16.0 / 9.0,
         zoom = 600,
     }
+
+    // Draw loop
+    running := true
+    frame: u32 = 0
     for running {
         renderer.render_command_c = 0
 
+        // Reset shape batch for new frame
+        shape_batch_begin_frame()
+
         cmd_begin_frame({renderer_id})
         cmd_bind_pipeline({renderer_id, pipeline})
+        cmd_bind_sampler({renderer_id, sampler, 0})
 
-        // Example: Draw some sprites using batching
-        // Full texture UV rect
-        full_uv := UV_Rect{ min = {0, 0}, max = {1, 1} }
-        
+        // Push view-projection matrix to uniform buffer (buffer slot 2)
+        view_proj := mat4_ortho_fixed_height(camera.zoom, camera.aspect_ratio)
+        // (You would push this to a uniform buffer here)
+
+        // ========================================
+        // EXAMPLE: Drawing with the new texture system
+        // ========================================
+
+        // 1. Draw SDF shapes (use built-in white texture at index 0)
+        draw_rect({-200, 100}, 0, {80, 80}, {255, 100, 100, 255})      // Red rectangle
+        draw_circle({-100, 100}, 40, {100, 255, 100, 255})             // Green circle
+        draw_triangle({0, 100}, 0, 80, {100, 100, 255, 255})           // Blue triangle
+        draw_donut({100, 100}, 40, 0.5, {255, 255, 100, 255})          // Yellow donut
+        draw_hollow_rect({200, 100}, 0, {80, 80}, 0.1, {255, 100, 255, 255})  // Pink hollow rect
+
+        // 2. Draw textured rectangle (entire texture)
+        draw_texture({0, -50}, 0, {128, 128}, my_texture_index)
+
+        // 3. Draw textured rectangle with custom UVs (e.g., from sprite atlas)
+        draw_textured_rect(
+            {-150, -50},                           // position
+            0,                                      // rotation
+            {64, 64},                               // size
+            my_texture_index,                       // texture index
+            UV_Rect{min = {0, 0}, max = {0.5, 0.5}}, // top-left quarter of texture
+            {255, 200, 200, 255},                   // tint color
+        )
+
+        // 4. Draw sprite from atlas using pixel coordinates
+        draw_sprite(
+            {150, -50},                             // position
+            0,                                       // rotation
+            {64, 64},                                // display size
+            my_texture_index,                        // texture index
+            {0, 0},                                  // sprite position in pixels (top-left)
+            {f32(tex_width), f32(tex_height)},       // sprite size in pixels
+            {f32(tex_width), f32(tex_height)},       // texture size in pixels
+        )
+
+        // 5. Draw with rotation and tint
+        rotation := f32(frame) * 0.02
+        draw_texture({0, -180}, rotation, {100, 100}, my_texture_index, {100, 200, 255, 255})
+
+        // Flush all batched shapes to GPU
+        flush_shapes_batch()
 
         cmd_end_frame({renderer_id})
 
         present()
         frame += 1
+
+        // Break after a few frames for this example
+        if frame > 100 {
+            running = false
+        }
     }
 
     // Cleanup loaded resources
-    destroy_texture(renderer_id, texture)
+    destroy_texture(renderer_id, my_texture)
     destroy_pipeline(renderer_id, pipeline)
-    // etc...
 
     destroy()
 }
@@ -279,6 +326,7 @@ Render_Command :: union {
     Render_Command_Bind_Texture,
     Render_Command_Bind_Vertex_Buffer,
     Render_Command_Bind_Sampler,
+    Render_Command_Bind_Argument_Buffer,
     Render_Command_Draw_Simple,
     
     Render_Command_End_Frame,
@@ -903,3 +951,17 @@ Render_Command_Bind_Sampler :: struct {
 }
 
 cmd_bind_sampler :: proc(cmd: Render_Command_Bind_Sampler) { insert_render_command(cmd) }
+
+// *** Argument Buffer (for bindless textures) ***
+
+Argument_Buffer_ID :: distinct uint
+
+MAX_ARGUMENT_BUFFERS :: #config(MAX_ARGUMENT_BUFFERS, 4)
+
+Render_Command_Bind_Argument_Buffer :: struct {
+    id:                 Renderer_ID,
+    argument_buffer_id: Argument_Buffer_ID,
+    slot:               uint,  // fragment buffer slot
+}
+
+cmd_bind_argument_buffer :: proc(cmd: Render_Command_Bind_Argument_Buffer) { insert_render_command(cmd) }

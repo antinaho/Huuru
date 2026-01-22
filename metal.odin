@@ -58,6 +58,13 @@ Metal_Texture :: struct {
     texture: ^MTL.Texture,
 }
 
+Metal_Argument_Buffer :: struct {
+    is_alive:      bool,
+    buffer:        ^MTL.Buffer,
+    encoder:       ^MTL.ArgumentEncoder,
+    max_textures:  uint,
+}
+
 
 Metal_State :: struct {
     using _ : Renderer_State_Header,
@@ -89,6 +96,9 @@ Metal_State :: struct {
     // Texture storage
     textures: [MAX_TEXTURES]Metal_Texture,
     samplers: [MAX_SAMPLERS]Metal_Sampler,
+
+    // Argument buffer storage (for bindless textures)
+    argument_buffers: [MAX_ARGUMENT_BUFFERS]Metal_Argument_Buffer,
 }
 
 metal_state_size :: proc() -> int {
@@ -153,6 +163,8 @@ metal_present :: proc() {
                 metal_draw_indexed(cmd.rid, cmd.vertex_id, cmd.vertex_offset, cmd.vertex_index, cmd.primitive, cmd.index_count, cmd.index_type, cmd.index_id, cmd.index_offset)
             case Render_Command_Bind_Sampler:
                 metal_bind_sampler(cmd.id, cmd.sampler, cmd.slot)
+            case Render_Command_Bind_Argument_Buffer:
+                metal_bind_argument_buffer(cmd.id, cmd.argument_buffer_id, cmd.slot)
             case Render_Command_Draw_Indexed_Instanced:
                 metal_draw_index_instanced(cmd.rid, cmd.index_buffer, cmd.index_count, cmd.index_buffer_offset, cmd.instance_count, cmd.index_type, cmd.primitive)
         }
@@ -820,4 +832,107 @@ metal_destroy_sampler :: proc(id: Renderer_ID, sampler: Sampler_ID) {
     mtl_state.samplers[sampler].sampler->release()
     mtl_state.samplers[sampler].is_alive = false
     mtl_state.samplers[sampler].sampler = nil
+}
+
+// *** Argument Buffer (for bindless textures) ***
+
+@(private="file")
+metal_get_free_argument_buffer :: proc(state: ^Metal_State) -> Argument_Buffer_ID {
+    for i in 0..<MAX_ARGUMENT_BUFFERS {
+        if !state.argument_buffers[i].is_alive {
+            return Argument_Buffer_ID(i)
+        }
+    }
+    log.panic("All argument buffer slots are in use!")
+}
+
+// Creates an argument buffer for bindless texture access.
+// The function_name should match the fragment function that will use this argument buffer.
+// buffer_index is the [[buffer(N)]] index where textures will be bound in the shader.
+// max_textures is the number of texture slots to allocate.
+metal_create_argument_buffer :: proc(id: Renderer_ID, function_name: string, buffer_index: uint, max_textures: uint) -> Argument_Buffer_ID {
+    state := cast(^Metal_State)get_state_from_id(id)
+    arg_buffer_id := metal_get_free_argument_buffer(state)
+
+    // Get the fragment function to create the argument encoder
+    function_name_ns := NS.String.alloc()->initWithOdinString(function_name)
+    fragment_function := state.shader_library->newFunctionWithName(function_name_ns)
+    assert(fragment_function != nil, "Fragment function not found for argument buffer")
+
+    // Create argument encoder for the specified buffer index
+    encoder := fragment_function->newArgumentEncoder(NS.UInteger(buffer_index))
+    assert(encoder != nil, "Failed to create argument encoder")
+
+    // Get the encoded length and create the buffer
+    encoded_length := encoder->encodedLength()
+    buffer := state.device->newBufferWithLength(encoded_length, {.StorageModeManaged})
+    assert(buffer != nil, "Failed to create argument buffer")
+
+    // Set the buffer on the encoder
+    encoder->setArgumentBufferWithOffset(buffer, 0)
+
+    state.argument_buffers[arg_buffer_id] = {
+        is_alive     = true,
+        buffer       = buffer,
+        encoder      = encoder,
+        max_textures = max_textures,
+    }
+
+    return arg_buffer_id
+}
+
+// Encodes textures into an argument buffer.
+// textures is a slice of Texture_IDs to encode.
+// The textures will be encoded at indices 0..len(textures)-1 in the argument buffer.
+metal_encode_textures :: proc(id: Renderer_ID, arg_buffer_id: Argument_Buffer_ID, textures: []Texture_ID) {
+    state := cast(^Metal_State)get_state_from_id(id)
+
+    assert(int(arg_buffer_id) < MAX_ARGUMENT_BUFFERS && int(arg_buffer_id) >= 0, "Invalid Argument_Buffer_ID")
+    assert(state.argument_buffers[arg_buffer_id].is_alive, "Argument buffer not alive")
+
+    arg_buffer := &state.argument_buffers[arg_buffer_id]
+    assert(uint(len(textures)) <= arg_buffer.max_textures, "Too many textures for argument buffer")
+
+    // Encode each texture
+    for texture_id, i in textures {
+        assert(int(texture_id) < MAX_TEXTURES && int(texture_id) >= 0, "Invalid Texture_ID")
+        assert(state.textures[texture_id].is_alive, "Cannot encode destroyed texture")
+
+        mtl_texture := state.textures[texture_id].texture
+        arg_buffer.encoder->setTexture(mtl_texture, NS.UInteger(i))
+    }
+
+    // Mark the buffer as modified so Metal knows to sync to GPU
+    arg_buffer.buffer->didModifyRange(NS.Range{
+        location = 0,
+        length = arg_buffer.buffer->length(),
+    })
+}
+
+// Binds an argument buffer to a fragment buffer slot for rendering.
+metal_bind_argument_buffer :: proc(id: Renderer_ID, arg_buffer_id: Argument_Buffer_ID, slot: uint) {
+    if mtl_state == nil || mtl_state.skip_frame do return
+
+    assert(int(arg_buffer_id) < MAX_ARGUMENT_BUFFERS && int(arg_buffer_id) >= 0, "Invalid Argument_Buffer_ID")
+    assert(mtl_state.argument_buffers[arg_buffer_id].is_alive, "Cannot bind destroyed argument buffer")
+
+    arg_buffer := &mtl_state.argument_buffers[arg_buffer_id]
+    mtl_state.render_encoder->setFragmentBuffer(arg_buffer.buffer, 0, NS.UInteger(slot))
+}
+
+// Destroys an argument buffer and releases its resources.
+metal_destroy_argument_buffer :: proc(id: Renderer_ID, arg_buffer_id: Argument_Buffer_ID) {
+    state := cast(^Metal_State)get_state_from_id(id)
+
+    assert(int(arg_buffer_id) < MAX_ARGUMENT_BUFFERS && int(arg_buffer_id) >= 0, "Invalid Argument_Buffer_ID")
+    assert(state.argument_buffers[arg_buffer_id].is_alive, "Argument buffer already destroyed")
+
+    arg_buffer := &state.argument_buffers[arg_buffer_id]
+    
+    arg_buffer.encoder->release()
+    arg_buffer.buffer->release()
+    
+    arg_buffer.is_alive = false
+    arg_buffer.encoder = nil
+    arg_buffer.buffer = nil
 }
