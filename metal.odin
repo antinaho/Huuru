@@ -63,6 +63,9 @@ Metal_Argument_Buffer :: struct {
     buffer:        ^MTL.Buffer,
     encoder:       ^MTL.ArgumentEncoder,
     max_textures:  uint,
+    // Track encoded textures for useResources() calls
+    encoded_textures: [MAX_SHAPE_TEXTURES]Texture_ID,
+    encoded_count:    uint,
 }
 
 
@@ -893,14 +896,16 @@ metal_encode_textures :: proc(id: Renderer_ID, arg_buffer_id: Argument_Buffer_ID
     arg_buffer := &state.argument_buffers[arg_buffer_id]
     assert(uint(len(textures)) <= arg_buffer.max_textures, "Too many textures for argument buffer")
 
-    // Encode each texture
+    // Encode each texture and store for later useResources() call
     for texture_id, i in textures {
         assert(int(texture_id) < MAX_TEXTURES && int(texture_id) >= 0, "Invalid Texture_ID")
         assert(state.textures[texture_id].is_alive, "Cannot encode destroyed texture")
 
         mtl_texture := state.textures[texture_id].texture
         arg_buffer.encoder->setTexture(mtl_texture, NS.UInteger(i))
+        arg_buffer.encoded_textures[i] = texture_id
     }
+    arg_buffer.encoded_count = uint(len(textures))
 
     // Mark the buffer as modified so Metal knows to sync to GPU
     arg_buffer.buffer->didModifyRange(NS.Range{
@@ -916,8 +921,21 @@ metal_bind_argument_buffer :: proc(id: Renderer_ID, arg_buffer_id: Argument_Buff
     assert(int(arg_buffer_id) < MAX_ARGUMENT_BUFFERS && int(arg_buffer_id) >= 0, "Invalid Argument_Buffer_ID")
     assert(mtl_state.argument_buffers[arg_buffer_id].is_alive, "Cannot bind destroyed argument buffer")
 
-    arg_buffer := mtl_state.argument_buffers[arg_buffer_id].buffer
-    mtl_state.render_encoder->setFragmentBuffer(arg_buffer, 0, NS.UInteger(slot))
+    arg_buffer := &mtl_state.argument_buffers[arg_buffer_id]
+    mtl_state.render_encoder->setFragmentBuffer(arg_buffer.buffer, 0, NS.UInteger(slot))
+    
+    // CRITICAL: Call useResources() to make textures resident for indirect access.
+    // Without this, the GPU cannot access textures through the argument buffer,
+    // resulting in undefined behavior (e.g., pink/magenta color output).
+    if arg_buffer.encoded_count > 0 {
+        // Build array of MTL.Resource pointers for useResources call
+        resources: [MAX_SHAPE_TEXTURES]^MTL.Resource
+        for i in 0..<arg_buffer.encoded_count {
+            texture_id := arg_buffer.encoded_textures[i]
+            resources[i] = mtl_state.textures[texture_id].texture
+        }
+        mtl_state.render_encoder->useResources(resources[:arg_buffer.encoded_count], {.Read})
+    }
 }
 
 // Destroys an argument buffer and releases its resources.
