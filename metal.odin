@@ -916,8 +916,8 @@ metal_bind_argument_buffer :: proc(id: Renderer_ID, arg_buffer_id: Argument_Buff
     assert(int(arg_buffer_id) < MAX_ARGUMENT_BUFFERS && int(arg_buffer_id) >= 0, "Invalid Argument_Buffer_ID")
     assert(mtl_state.argument_buffers[arg_buffer_id].is_alive, "Cannot bind destroyed argument buffer")
 
-    arg_buffer := &mtl_state.argument_buffers[arg_buffer_id]
-    mtl_state.render_encoder->setFragmentBuffer(arg_buffer.buffer, 0, NS.UInteger(slot))
+    arg_buffer := mtl_state.argument_buffers[arg_buffer_id].buffer
+    mtl_state.render_encoder->setFragmentBuffer(arg_buffer, 0, NS.UInteger(slot))
 }
 
 // Destroys an argument buffer and releases its resources.
