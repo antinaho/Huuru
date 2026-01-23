@@ -611,6 +611,9 @@ read_section :: proc(reader: ^bufio.Reader, start: string, end: byte) -> (sectio
 
 Uniforms :: struct {
     view_projection: matrix[4,4]f32,
+    screen_size:     Vec2,   // screen dimensions in pixels
+    pixel_size:      f32,    // virtual pixel size (1.0 = no pixelation, 4.0 = 4x4 pixel blocks)
+    _pad:            f32,    // padding for alignment
 }
 
 
