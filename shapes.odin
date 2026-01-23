@@ -40,6 +40,7 @@ Shape_Kind :: enum u32 {
     Hollow_Rect     = 4,
     Hollow_Triangle = 5,
     Textured_Rect   = 6,
+    Line            = 7,
 }
 
 Shape_Instance :: struct #align(16) {
@@ -105,7 +106,7 @@ QUAD_VERTICES :: [4]Shape_Vertex {
 
 QUAD_INDICES :: [6]u32 {0, 1, 2, 2, 3, 0}
 
-shape_batch_begin_frame :: proc() {
+shape_batch_free_all :: proc() {
     shape_batch.instance_offset = 0
     shape_batch.instance_count = 0
 }
@@ -216,6 +217,81 @@ draw_hollow_rect :: proc(position: Vec2, rotation: f32, size: Vec2, thickness: f
 
 draw_hollow_triangle :: proc(position: Vec2, rotation: f32, size: f32, thickness: f32, color: Color) {
     draw_shape(position, rotation, {size, size}, color, .Hollow_Triangle, {thickness, 0, 0, 0})
+}
+
+import "core:math"
+
+// Internal helper to draw a single line segment
+@(private="file")
+draw_line_segment :: proc(start_pos: Vec2, end_pos: Vec2, thickness: f32, color: Color) {
+    delta := end_pos - start_pos
+    length := math.sqrt(delta.x * delta.x + delta.y * delta.y)
+    
+    if length < 0.001 {
+        return  // Skip degenerate segments
+    }
+    
+    center := (start_pos + end_pos) * 0.5
+    rotation := math.atan2(delta.y, delta.x)
+    
+    draw_shape(center, rotation, {length, thickness}, color, .Line)
+}
+
+// Draw a straight line from start to end
+draw_line :: proc(start_pos: Vec2, end_pos: Vec2, thickness: f32, color: Color) {
+    draw_line_segment(start_pos, end_pos, thickness, color)
+}
+
+// Evaluate quadratic Bézier curve at parameter t
+// P(t) = (1-t)²·P0 + 2(1-t)t·P1 + t²·P2
+@(private="file")
+bezier_quadratic :: proc(p0, p1, p2: Vec2, t: f32) -> Vec2 {
+    u := 1.0 - t
+    return u * u * p0 + 2.0 * u * t * p1 + t * t * p2
+}
+
+// Evaluate cubic Bézier curve at parameter t
+// P(t) = (1-t)³·P0 + 3(1-t)²t·P1 + 3(1-t)t²·P2 + t³·P3
+@(private="file")
+bezier_cubic :: proc(p0, p1, p2, p3: Vec2, t: f32) -> Vec2 {
+    u := 1.0 - t
+    u2 := u * u
+    t2 := t * t
+    return u2 * u * p0 + 3.0 * u2 * t * p1 + 3.0 * u * t2 * p2 + t2 * t * p3
+}
+
+// Default number of segments for Bézier curve tessellation
+BEZIER_DEFAULT_SEGMENTS :: 16
+
+// Draw a quadratic Bézier curve (1 control point)
+// start_pos: starting point (P0)
+// control: control point (P1)
+// end_pos: ending point (P2)
+draw_bezier_quadratic :: proc(start_pos: Vec2, control: Vec2, end_pos: Vec2, thickness: f32, color: Color, segments: int = BEZIER_DEFAULT_SEGMENTS) {
+    prev := start_pos
+    
+    for i in 1..=segments {
+        t := f32(i) / f32(segments)
+        curr := bezier_quadratic(start_pos, control, end_pos, t)
+        draw_line_segment(prev, curr, thickness, color)
+        prev = curr
+    }
+}
+
+// Draw a cubic Bézier curve (2 control points)
+// start_pos: starting point (P0)
+// control1: first control point (P1)
+// control2: second control point (P2)
+// end_pos: ending point (P3)
+draw_bezier_cubic :: proc(start_pos: Vec2, control1: Vec2, control2: Vec2, end_pos: Vec2, thickness: f32, color: Color, segments: int = BEZIER_DEFAULT_SEGMENTS) {
+    prev := start_pos
+    
+    for i in 1..=segments {
+        t := f32(i) / f32(segments)
+        curr := bezier_cubic(start_pos, control1, control2, end_pos, t)
+        draw_line_segment(prev, curr, thickness, color)
+        prev = curr
+    }
 }
 
 // *** Textured drawing ***

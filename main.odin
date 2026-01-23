@@ -151,7 +151,7 @@ main :: proc() {
         renderer.render_command_c = 0
 
         // Reset shape batch for new frame
-        shape_batch_begin_frame()
+        shape_batch_free_all()
 
         cmd_begin_frame({renderer_id})
         cmd_bind_pipeline({renderer_id, pipeline})
@@ -341,6 +341,11 @@ insert_render_command :: proc(cmd: Render_Command) {
 
 cmd_begin_frame :: proc(cmd: Render_Command_Begin_Frame) { insert_render_command(cmd) }
 cmd_end_frame :: proc(cmd: Render_Command_End_Frame) { insert_render_command(cmd) }
+
+loop_begin :: proc() {
+    clear_commands()
+    shape_batch_free_all()
+}
 
 // *** Pipeline *** 
 Pipeline_ID :: distinct uint
@@ -954,9 +959,6 @@ Render_Command_Bind_Argument_Buffer :: struct {
 
 cmd_bind_argument_buffer :: proc(cmd: Render_Command_Bind_Argument_Buffer) { insert_render_command(cmd) }
 
-// Descriptor for creating argument buffers (bindless resource arrays)
-// In Metal: uses Argument Buffers
-// In Vulkan/DX12: would use Descriptor Sets/Tables
 Argument_Buffer_Desc :: struct {
     function_name: string,  // Shader function name that uses this buffer (Metal-specific, can be ignored by other APIs)
     buffer_index:  uint,    // Shader binding index [[buffer(N)]]
