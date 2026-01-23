@@ -149,28 +149,36 @@ float2 uv_klems(float2 uv, int2 texture_size) {
 
 
 
-// Pixel-snap a position for SDF calculations
-// Similar concept to uv_klems but for SDF coordinate space
+// Pixel-snap UV coordinates for SDF calculations (Klems-style)
+// Snaps to virtual pixel grid while maintaining smooth transitions at pixel boundaries
+// uv: original UV coordinates [0,1]
 // frag_coord: fragment screen position
-// screen_size: screen dimensions
+// screen_size: screen dimensions in pixels
 // pixel_size: virtual pixel size (1.0 = native, 2.0 = 2x2 blocks, etc.)
-// Returns snapped position offset to apply
-float2 sdf_pixel_snap(float2 frag_coord, float2 screen_size, float pixel_size) {
+// Returns snapped UV coordinates
+float2 sdf_pixel_snap(float2 uv, float2 frag_coord, float2 screen_size, float pixel_size) {
     if (pixel_size <= 1.0) {
-        return float2(0.0);  // No snapping needed
+        return uv;  // No snapping needed
     }
     
-    // Calculate virtual pixel grid
+    // Calculate position in virtual pixel grid
     float2 virtual_pixels = frag_coord / pixel_size;
     float2 fl = floor(virtual_pixels);
     float2 fr = fract(virtual_pixels);
     
-    // Snap to pixel center with smooth edge (klems-style)
+    // Klems-style smoothstep at pixel boundaries
     float2 aa = fwidth(virtual_pixels) * 0.75;
     fr = smoothstep(float2(0.5) - aa, float2(0.5) + aa, fr);
     
-    float2 snapped = (fl + fr) * pixel_size;
-    return snapped - frag_coord;
+    // Calculate snapped screen position and convert to UV offset
+    float2 snapped_screen = (fl + fr) * pixel_size;
+    float2 screen_offset = snapped_screen - frag_coord;
+    
+    // Convert screen offset to UV offset (need to account for shape's screen coverage)
+    // This is approximate - we use screen_size as reference
+    float2 uv_offset = screen_offset / screen_size;
+    
+    return uv + uv_offset;
 }
 
 // Quantize SDF distance for hard pixel edges
@@ -203,19 +211,9 @@ fragment float4 shape_fragment(
 ) {
     float4 color = in.color;
     float pixel_size = in.pixel_size;
-    bool pixelated = pixel_size > 1.0;
     
-    // For pixelated mode, snap the UV coordinates to virtual pixel grid
-    float2 uv = in.uv;
-    if (pixelated) {
-        // Convert fragment coord to virtual pixel grid and snap
-        float2 virtual_pixel = frag_coord.xy / pixel_size;
-        float2 snapped_pixel = floor(virtual_pixel) + 0.5;  // snap to pixel center
-        
-        // Calculate the offset in UV space
-        float2 pixel_offset = (snapped_pixel * pixel_size - frag_coord.xy) / in.screen_size;
-        uv = in.uv + pixel_offset;
-    }
+    // Apply Klems-style pixel snapping for pixelated mode
+    float2 uv = sdf_pixel_snap(in.uv, frag_coord.xy, in.screen_size, pixel_size);
     
     float2 centered = uv - 0.5;  // center UV at origin, range [-0.5, 0.5]
     float dist = length(centered);
@@ -267,7 +265,7 @@ fragment float4 shape_fragment(
         // Line using SDF for smooth anti-aliased rendering with round caps
         // params.xy = normalized start point
         // params.zw = normalized end point
-        // uv_min.x = thickness ratio (half_thickness / min_box_dimension)
+        // uv_min.x = thickness ratio (half_thickness / box_height)
         // uv_min.y = aspect ratio (box_width / box_height)
         
         float2 line_start = float2(in.params.x, -in.params.y);  // flip Y to match UV flip
@@ -275,9 +273,11 @@ fragment float4 shape_fragment(
         float thickness_ratio = in.uv_min.x;
         float aspect = in.uv_min.y;
         
-        // Adjust centered coords for aspect ratio to get correct distances
+        // Scale to square coordinate space where y spans [-0.5, 0.5]
+        // and x spans [-0.5*aspect, 0.5*aspect]
+        // This preserves the actual distances in units of box_height
         float2 p = centered;
-        p.x *= aspect;  // Scale x to match aspect ratio
+        p.x *= aspect;
         
         float2 a = line_start;
         a.x *= aspect;
@@ -285,7 +285,7 @@ fragment float4 shape_fragment(
         float2 b = line_end;
         b.x *= aspect;
         
-        // Calculate distance to line segment
+        // Calculate distance to line segment (in units of box_height)
         float d = sdf_line_segment(p, a, b);
         
         float alpha = sdf_alpha_pixelated(d, thickness_ratio, pixel_size);

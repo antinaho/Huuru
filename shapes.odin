@@ -250,13 +250,12 @@ draw_line_segment :: proc(start_pos: Vec2, end_pos: Vec2, thickness: f32, color:
     // Pack normalized endpoints and thickness ratio into params
     // params.xy = start point in normalized coords
     // params.zw = end point in normalized coords
-    // We pass thickness as a ratio of the smaller box dimension
-    // Actually, we need thickness in normalized space - use uv_min/uv_max for that
     params := Vec4{start_normalized.x, start_normalized.y, end_normalized.x, end_normalized.y}
     
-    // Pass half_thickness / box_size as the radius in normalized space
-    // Use the average to handle aspect ratio (or we could pass both)
-    thickness_normalized := half_thickness / min(box_size.x, box_size.y)
+    // Pass half_thickness / box_height as the radius in normalized space
+    // The shader scales x by aspect ratio, so we normalize against box_height
+    // to keep consistent units after the aspect ratio scaling
+    thickness_normalized := half_thickness / box_size.y
     
     // Store thickness ratio in uv_min.x (repurposing UV for non-textured shape)
     draw_shape(box_center, 0, box_size, color, .Line, params, uv_min = {thickness_normalized, box_size.x / box_size.y})
