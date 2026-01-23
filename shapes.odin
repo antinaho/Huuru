@@ -221,20 +221,45 @@ draw_hollow_triangle :: proc(position: Vec2, rotation: f32, size: f32, thickness
 
 import "core:math"
 
-// Internal helper to draw a single line segment
+// Internal helper to draw a single line segment using SDF
+// Uses an axis-aligned bounding box and passes normalized endpoints to shader
 @(private="file")
 draw_line_segment :: proc(start_pos: Vec2, end_pos: Vec2, thickness: f32, color: Color) {
-    delta := end_pos - start_pos
-    length := math.sqrt(delta.x * delta.x + delta.y * delta.y)
+    // Calculate axis-aligned bounding box with padding for thickness
+    half_thickness := thickness * 0.5
     
-    if length < 0.001 {
-        return  // Skip degenerate segments
+    min_x := min(start_pos.x, end_pos.x) - half_thickness
+    max_x := max(start_pos.x, end_pos.x) + half_thickness
+    min_y := min(start_pos.y, end_pos.y) - half_thickness
+    max_y := max(start_pos.y, end_pos.y) + half_thickness
+    
+    // Box dimensions and center
+    box_size := Vec2{max_x - min_x, max_y - min_y}
+    box_center := Vec2{(min_x + max_x) * 0.5, (min_y + max_y) * 0.5}
+    
+    // Skip degenerate boxes
+    if box_size.x < 0.001 && box_size.y < 0.001 {
+        return
     }
     
-    center := (start_pos + end_pos) * 0.5
-    rotation := math.atan2(delta.y, delta.x)
+    // Normalize line endpoints relative to box center, scaled to [-0.5, 0.5] range
+    // This maps the endpoints into the UV space of the quad
+    start_normalized := (start_pos - box_center) / box_size
+    end_normalized := (end_pos - box_center) / box_size
     
-    draw_shape(center, rotation, {length, thickness}, color, .Line)
+    // Pack normalized endpoints and thickness ratio into params
+    // params.xy = start point in normalized coords
+    // params.zw = end point in normalized coords
+    // We pass thickness as a ratio of the smaller box dimension
+    // Actually, we need thickness in normalized space - use uv_min/uv_max for that
+    params := Vec4{start_normalized.x, start_normalized.y, end_normalized.x, end_normalized.y}
+    
+    // Pass half_thickness / box_size as the radius in normalized space
+    // Use the average to handle aspect ratio (or we could pass both)
+    thickness_normalized := half_thickness / min(box_size.x, box_size.y)
+    
+    // Store thickness ratio in uv_min.x (repurposing UV for non-textured shape)
+    draw_shape(box_center, 0, box_size, color, .Line, params, uv_min = {thickness_normalized, box_size.x / box_size.y})
 }
 
 // Draw a straight line from start to end

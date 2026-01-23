@@ -59,16 +59,18 @@ vertex Shape_Out shape_vertex(
     Shape_Out out;
     Shape_Instance inst = instances[instID];
 
-    // rotation
+    // scale first, then rotation
+    float2 scaled = vert.position * inst.scale;
+    
     float c = cos(inst.rotation);
     float s = sin(inst.rotation);
     float2 rotated = float2(
-        vert.position.x * c - vert.position.y * s,
-        vert.position.x * s + vert.position.y * c
+        scaled.x * c - scaled.y * s,
+        scaled.x * s + scaled.y * c
     );
 
-    // scale + translation
-    float2 world_pos = rotated * inst.scale + inst.position;
+    // translation
+    float2 world_pos = rotated + inst.position;
 
     out.position = uniforms.view_projection * float4(world_pos, 0.0, 1.0);
     
@@ -107,6 +109,18 @@ float sdf_triangle(float2 p, float r) {
 float sdf_box(float2 p, float2 b) {
     float2 d = abs(p) - b;
     return length(max(d, 0.0)) + min(max(d.x, d.y), 0.0);
+}
+
+// SDF for line segment with round caps
+// p: point to test
+// a: start point of line segment
+// b: end point of line segment
+// Returns distance to the line segment (not including radius)
+float sdf_line_segment(float2 p, float2 a, float2 b) {
+    float2 pa = p - a;
+    float2 ba = b - a;
+    float h = clamp(dot(pa, ba) / dot(ba, ba), 0.0, 1.0);
+    return length(pa - ba * h);
 }
 
 
@@ -170,11 +184,35 @@ fragment float4 shape_fragment(
     }
 
     else if (in.kind == SHAPE_LINE) {
-        // Line rendered as a box: the quad is already scaled to (length, thickness)
-        // and rotated to align with the line direction.
-        // Use box SDF for anti-aliased edges on both ends and sides.
-        float d = sdf_box(centered, float2(0.5, 0.5));
-        float alpha = 1.0 - smoothstep(-aa, aa, d);
+        // Line using SDF for smooth anti-aliased rendering with round caps
+        // params.xy = normalized start point
+        // params.zw = normalized end point
+        // tex_uv.x = thickness ratio (half_thickness / min_box_dimension)
+        // tex_uv.y = aspect ratio (box_width / box_height)
+        
+        float2 line_start = in.params.xy;
+        float2 line_end = in.params.zw;
+        float thickness_ratio = in.tex_uv.x;
+        float aspect = in.tex_uv.y;
+        
+        // Adjust centered coords for aspect ratio to get correct distances
+        float2 p = centered;
+        p.x *= aspect;  // Scale x to match aspect ratio
+        
+        float2 a = line_start;
+        a.x *= aspect;
+        
+        float2 b = line_end;
+        b.x *= aspect;
+        
+        // Calculate distance to line segment
+        float d = sdf_line_segment(p, a, b);
+        
+        // thickness_ratio is in the normalized space, adjust for aspect
+        float radius = thickness_ratio;
+        
+        float aa_line = fwidth(d);
+        float alpha = 1.0 - smoothstep(radius - aa_line, radius + aa_line, d);
         color.a *= alpha;
     }
 
