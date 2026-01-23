@@ -53,6 +53,10 @@ Renderer_API :: struct {
     destroy_texture:     proc(id: Renderer_ID, texture: Texture_ID),
     create_sampler:      proc(id: Renderer_ID, desc: Sampler_Desc) -> Sampler_ID,
     destroy_sampler:     proc(id: Renderer_ID, sampler: Sampler_ID),
+    // Argument buffers (bindless resources)
+    create_argument_buffer:           proc(id: Renderer_ID, desc: Argument_Buffer_Desc) -> Argument_Buffer_ID,
+    encode_argument_buffer_textures:  proc(id: Renderer_ID, arg_buffer_id: Argument_Buffer_ID, textures: []Texture_ID),
+    destroy_argument_buffer:          proc(id: Renderer_ID, arg_buffer_id: Argument_Buffer_ID),
     // Per frame
     bind_sampler:        proc(id: Renderer_ID, sampler: Sampler_ID, slot: uint),
     begin_frame:         proc(id: Renderer_ID),
@@ -949,3 +953,24 @@ Render_Command_Bind_Argument_Buffer :: struct {
 }
 
 cmd_bind_argument_buffer :: proc(cmd: Render_Command_Bind_Argument_Buffer) { insert_render_command(cmd) }
+
+// Descriptor for creating argument buffers (bindless resource arrays)
+// In Metal: uses Argument Buffers
+// In Vulkan/DX12: would use Descriptor Sets/Tables
+Argument_Buffer_Desc :: struct {
+    function_name: string,  // Shader function name that uses this buffer (Metal-specific, can be ignored by other APIs)
+    buffer_index:  uint,    // Shader binding index [[buffer(N)]]
+    max_textures:  uint,    // Maximum number of textures to allocate slots for
+}
+
+create_argument_buffer :: proc(id: Renderer_ID, desc: Argument_Buffer_Desc) -> Argument_Buffer_ID {
+    return RENDERER_API.create_argument_buffer(id, desc)
+}
+
+encode_argument_buffer_textures :: proc(id: Renderer_ID, arg_buffer_id: Argument_Buffer_ID, textures: []Texture_ID) {
+    RENDERER_API.encode_argument_buffer_textures(id, arg_buffer_id, textures)
+}
+
+destroy_argument_buffer :: proc(id: Renderer_ID, arg_buffer_id: Argument_Buffer_ID) {
+    RENDERER_API.destroy_argument_buffer(id, arg_buffer_id)
+}

@@ -116,9 +116,12 @@ shape_batcher_init :: proc(renderer_id: Renderer_ID, allocator: runtime.Allocato
     quad_verts := QUAD_VERTICES
     quad_indices := QUAD_INDICES
 
-    // Buffer index 3
-    // TODO abstract so not calling metal directly
-    arg_buffer := metal_create_argument_buffer(renderer_id, "shape_fragment", 3, MAX_SHAPE_TEXTURES)
+    // Create argument buffer for bindless texture access (buffer index 3 in shader)
+    arg_buffer := create_argument_buffer(renderer_id, Argument_Buffer_Desc {
+        function_name = "shape_fragment",
+        buffer_index  = 3,
+        max_textures  = MAX_SHAPE_TEXTURES,
+    })
 
     shape_batch^ = {
         rid              = renderer_id,
@@ -162,8 +165,7 @@ update_shape_textures :: proc() {
         return
     }
     
-    // TODO move to non metal
-    metal_encode_textures(
+    encode_argument_buffer_textures(
         shape_batch.rid,
         shape_batch.argument_buffer,
         shape_batch.textures[:shape_batch.texture_count],
@@ -263,7 +265,6 @@ flush_shapes_batch :: proc() {
     )
     
     // Bind the argument buffer containing all registered textures (fragment buffer slot 3)
-    // TODO move argument buffer to render agnostic proc
     cmd_bind_argument_buffer({
         id                 = shape_batch.rid,
         argument_buffer_id = shape_batch.argument_buffer,

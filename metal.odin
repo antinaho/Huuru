@@ -39,6 +39,11 @@ METAL_RENDERER_API :: Renderer_API {
     create_sampler = metal_create_sampler,
     bind_sampler = metal_bind_sampler,
     destroy_sampler = metal_destroy_sampler,
+
+    // Argument buffers (bindless resources)
+    create_argument_buffer = metal_create_argument_buffer,
+    encode_argument_buffer_textures = metal_encode_argument_buffer_textures,
+    destroy_argument_buffer = metal_destroy_argument_buffer,
 }
 
 Metal_Pipeline :: struct {
@@ -850,20 +855,20 @@ metal_get_free_argument_buffer :: proc(state: ^Metal_State) -> Argument_Buffer_I
 }
 
 // Creates an argument buffer for bindless texture access.
-// The function_name should match the fragment function that will use this argument buffer.
-// buffer_index is the [[buffer(N)]] index where textures will be bound in the shader.
-// max_textures is the number of texture slots to allocate.
-metal_create_argument_buffer :: proc(id: Renderer_ID, function_name: string, buffer_index: uint, max_textures: uint) -> Argument_Buffer_ID {
+// desc.function_name should match the fragment function that will use this argument buffer.
+// desc.buffer_index is the [[buffer(N)]] index where textures will be bound in the shader.
+// desc.max_textures is the number of texture slots to allocate.
+metal_create_argument_buffer :: proc(id: Renderer_ID, desc: Argument_Buffer_Desc) -> Argument_Buffer_ID {
     state := cast(^Metal_State)get_state_from_id(id)
     arg_buffer_id := metal_get_free_argument_buffer(state)
 
     // Get the fragment function to create the argument encoder
-    function_name_ns := NS.String.alloc()->initWithOdinString(function_name)
+    function_name_ns := NS.String.alloc()->initWithOdinString(desc.function_name)
     fragment_function := state.shader_library->newFunctionWithName(function_name_ns)
     assert(fragment_function != nil, "Fragment function not found for argument buffer")
 
     // Create argument encoder for the specified buffer index
-    encoder := fragment_function->newArgumentEncoder(NS.UInteger(buffer_index))
+    encoder := fragment_function->newArgumentEncoder(NS.UInteger(desc.buffer_index))
     assert(encoder != nil, "Failed to create argument encoder")
 
     // Get the encoded length and create the buffer
@@ -878,7 +883,7 @@ metal_create_argument_buffer :: proc(id: Renderer_ID, function_name: string, buf
         is_alive     = true,
         buffer       = buffer,
         encoder      = encoder,
-        max_textures = max_textures,
+        max_textures = desc.max_textures,
     }
 
     return arg_buffer_id
@@ -887,7 +892,7 @@ metal_create_argument_buffer :: proc(id: Renderer_ID, function_name: string, buf
 // Encodes textures into an argument buffer.
 // textures is a slice of Texture_IDs to encode.
 // The textures will be encoded at indices 0..len(textures)-1 in the argument buffer.
-metal_encode_textures :: proc(id: Renderer_ID, arg_buffer_id: Argument_Buffer_ID, textures: []Texture_ID) {
+metal_encode_argument_buffer_textures :: proc(id: Renderer_ID, arg_buffer_id: Argument_Buffer_ID, textures: []Texture_ID) {
     state := cast(^Metal_State)get_state_from_id(id)
 
     assert(int(arg_buffer_id) < MAX_ARGUMENT_BUFFERS && int(arg_buffer_id) >= 0, "Invalid Argument_Buffer_ID")
@@ -924,9 +929,6 @@ metal_bind_argument_buffer :: proc(id: Renderer_ID, arg_buffer_id: Argument_Buff
     arg_buffer := &mtl_state.argument_buffers[arg_buffer_id]
     mtl_state.render_encoder->setFragmentBuffer(arg_buffer.buffer, 0, NS.UInteger(slot))
     
-    // CRITICAL: Call useResources() to make textures resident for indirect access.
-    // Without this, the GPU cannot access textures through the argument buffer,
-    // resulting in undefined behavior (e.g., pink/magenta color output).
     if arg_buffer.encoded_count > 0 {
         // Build array of MTL.Resource pointers for useResources call
         resources: [MAX_SHAPE_TEXTURES]^MTL.Resource
