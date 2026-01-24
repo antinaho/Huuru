@@ -1,6 +1,7 @@
 package huuru
 
 import "base:runtime"
+import "core:math/linalg"
 import stbi "vendor:stb/image"
 
 SHAPES_PER_FRAME :: #config(SHAPES_PER_FRAME, 100_000)
@@ -14,6 +15,7 @@ Shape_Batch :: struct {
     vertex_buffer:   Buffer_ID,
     index_buffer:    Buffer_ID,
     instance_buffer: Buffer_ID,
+    uniform_buffer:  Buffer_ID,
     
     instance_offset: uint,
     instance_count:  uint,
@@ -23,6 +25,14 @@ Shape_Batch :: struct {
     texture_count:    u32,
     argument_buffer:  Argument_Buffer_ID,
     textures_dirty:   bool,
+    
+    // Pixel art mode: world units per "pixel" (0 = smooth/no pixelation)
+    pixel_size:       f32,
+    
+    // Cached uniforms for this frame
+    view_projection:     matrix[4,4]f32,
+    inv_view_projection: matrix[4,4]f32,
+    screen_size:         Vec2,
     
     rid:             Renderer_ID,
 }
@@ -111,6 +121,26 @@ shape_batch_free_all :: proc() {
     shape_batch.instance_count = 0
 }
 
+// Set the pixel size for pixel art rendering.
+// pixel_size: world units per "pixel" (e.g., 4.0 means each pixel art pixel is 4x4 world units)
+// Set to 0 for smooth rendering (default, no pixelation).
+set_pixel_size :: proc(pixel_size: f32) {
+    shape_batch.pixel_size = pixel_size
+}
+
+// Get the current pixel size setting
+get_pixel_size :: proc() -> f32 {
+    return shape_batch.pixel_size
+}
+
+// Set the view projection matrix for shape rendering.
+// This should be called once per frame before drawing shapes.
+set_shape_view_projection :: proc(view_proj: matrix[4,4]f32, screen_size: Vec2) {
+    shape_batch.view_projection = view_proj
+    shape_batch.inv_view_projection = linalg.inverse(view_proj)
+    shape_batch.screen_size = screen_size
+}
+
 shape_batcher_init :: proc(renderer_id: Renderer_ID, allocator: runtime.Allocator) {
     shape_batch = new(Shape_Batch, allocator)
     
@@ -129,8 +159,10 @@ shape_batcher_init :: proc(renderer_id: Renderer_ID, allocator: runtime.Allocato
         vertex_buffer    = create_buffer(renderer_id, raw_data(quad_verts[:]), size_of(QUAD_VERTICES), .Vertex, .Static),
         index_buffer     = create_buffer(renderer_id, raw_data(quad_indices[:]), size_of(QUAD_INDICES), .Index, .Static),
         instance_buffer  = create_buffer_zeros(renderer_id, SHAPES_PER_FRAME * size_of(Shape_Instance), .Vertex, .Dynamic),
+        uniform_buffer   = create_buffer_zeros(renderer_id, size_of(Shape_Uniforms), .Vertex, .Dynamic),
         argument_buffer  = arg_buffer,
         textures_dirty   = true,
+        pixel_size       = 0,  // Default: smooth rendering (no pixelation)
     }
 
     // Default 1x1 white texture at index 0
@@ -364,6 +396,22 @@ flush_shapes_batch :: proc() {
         .Dynamic
     )
     
+    // Push uniforms (view projection, pixel size, etc.)
+    uniforms := Shape_Uniforms {
+        view_projection     = shape_batch.view_projection,
+        inv_view_projection = shape_batch.inv_view_projection,
+        screen_size         = shape_batch.screen_size,
+        pixel_size          = shape_batch.pixel_size,
+    }
+    push_buffer(
+        shape_batch.rid,
+        shape_batch.uniform_buffer,
+        &uniforms,
+        0,
+        size_of(Shape_Uniforms),
+        .Dynamic,
+    )
+    
     // Bind the argument buffer containing all registered textures (fragment buffer slot 3)
     cmd_bind_argument_buffer({
         id                 = shape_batch.rid,
@@ -382,6 +430,12 @@ flush_shapes_batch :: proc() {
         buffer_id = shape_batch.instance_buffer,
         index     = 1,  // buffer 1 for instances
         offset    = byte_offset,
+    })
+    cmd_bind_vertex_buffer({
+        id        = shape_batch.rid,
+        buffer_id = shape_batch.uniform_buffer,
+        index     = 2,  // buffer 2 for uniforms
+        offset    = 0,
     })
     
     cmd_draw_indexed_instances({

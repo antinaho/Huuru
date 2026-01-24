@@ -157,9 +157,15 @@ main :: proc() {
         cmd_bind_pipeline({renderer_id, pipeline})
         cmd_bind_sampler({renderer_id, sampler, 0})
 
-        // Push view-projection matrix to uniform buffer (buffer slot 2)
+        // Set up view projection for shape rendering
         view_proj := mat4_ortho_fixed_height(camera.zoom, camera.aspect_ratio)
-        // (You would push this to a uniform buffer here)
+        screen_size := Vec2{f32(window.get_size(window.data).x), f32(window.get_size(window.data).y)}
+        set_shape_view_projection(view_proj, screen_size)
+        
+        // Enable pixel art mode: set pixel_size > 0 for pixelated look
+        // pixel_size is in world units per "pixel" (e.g., 4.0 = 4x4 world unit pixels)
+        // Set to 0 for smooth anti-aliased rendering (default)
+        set_pixel_size(0)  // Change to e.g. 4.0 for pixel art mode
 
         // ========================================
         // EXAMPLE: Drawing with the new texture system
@@ -609,6 +615,18 @@ read_section :: proc(reader: ^bufio.Reader, start: string, end: byte) -> (sectio
 }
 // *** Drawing ***
 
+// Must match Shape_Uniforms in shapes.metal (160 bytes total)
+Shape_Uniforms :: struct #align(16) {
+    view_projection:     matrix[4,4]f32,  // offset 0, 64 bytes
+    inv_view_projection: matrix[4,4]f32,  // offset 64, 64 bytes
+    screen_size:         Vec2,            // offset 128, 8 bytes
+    pixel_size:          f32,             // offset 136, 4 bytes (world units per pixel art "pixel", 0 = smooth)
+    _pad:                f32,             // offset 140, 4 bytes (padding for alignment)
+}
+
+#assert(size_of(Shape_Uniforms) == 144)
+
+// Legacy struct kept for compatibility
 Uniforms :: struct {
     view_projection: matrix[4,4]f32,
     screen_size:     Vec2,   // screen dimensions in pixels
