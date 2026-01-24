@@ -25,14 +25,9 @@ Shape_Batch :: struct {
     texture_count:    u32,
     argument_buffer:  Argument_Buffer_ID,
     textures_dirty:   bool,
-    
-    // Pixel art mode: world units per "pixel" (0 = smooth/no pixelation)
-    pixel_size:       f32,
-    
+
     // Cached uniforms for this frame
     view_projection:     matrix[4,4]f32,
-    inv_view_projection: matrix[4,4]f32,
-    screen_size:         Vec2,
     
     rid:             Renderer_ID,
 }
@@ -40,13 +35,7 @@ Shape_Batch :: struct {
 // Must match Shape_Uniforms in shapes.metal (160 bytes total)
 Shape_Uniforms :: struct #align(16) {
     view_projection:     matrix[4,4]f32,  // offset 0, 64 bytes
-    inv_view_projection: matrix[4,4]f32,  // offset 64, 64 bytes
-    screen_size:         Vec2,            // offset 128, 8 bytes
-    pixel_size:          f32,             // offset 136, 4 bytes (world units per pixel art "pixel", 0 = smooth)
-    _pad:                f32,             // offset 140, 4 bytes (padding for alignment)
 }
-
-#assert(size_of(Shape_Uniforms) == 144)
 
 Shape_Vertex :: struct {
     position: Vec2,
@@ -132,24 +121,10 @@ shape_batch_free_all :: proc() {
     shape_batch.instance_count = 0
 }
 
-// Set the pixel size for pixel art rendering.
-// pixel_size: world units per "pixel" (e.g., 4.0 means each pixel art pixel is 4x4 world units)
-// Set to 0 for smooth rendering (default, no pixelation).
-set_pixel_size :: proc(pixel_size: f32) {
-    shape_batch.pixel_size = pixel_size
-}
-
-// Get the current pixel size setting
-get_pixel_size :: proc() -> f32 {
-    return shape_batch.pixel_size
-}
-
 // Set the view projection matrix for shape rendering.
 // This should be called once per frame before drawing shapes.
-set_shape_view_projection :: proc(view_proj: matrix[4,4]f32, screen_size: Vec2) {
+set_shape_view_projection :: proc(view_proj: matrix[4,4]f32) {
     shape_batch.view_projection = view_proj
-    shape_batch.inv_view_projection = linalg.inverse(view_proj)
-    shape_batch.screen_size = screen_size
 }
 
 shape_batcher_init :: proc(renderer_id: Renderer_ID, allocator: runtime.Allocator) {
@@ -173,7 +148,6 @@ shape_batcher_init :: proc(renderer_id: Renderer_ID, allocator: runtime.Allocato
         uniform_buffer   = create_buffer_zeros(renderer_id, size_of(Shape_Uniforms), .Vertex, .Dynamic),
         argument_buffer  = arg_buffer,
         textures_dirty   = true,
-        pixel_size       = 0,  // Default: smooth rendering (no pixelation)
     }
 
     // Default 1x1 white texture at index 0
@@ -410,9 +384,6 @@ flush_shapes_batch :: proc() {
     // Push uniforms (view projection, pixel size, etc.)
     uniforms := Shape_Uniforms {
         view_projection     = shape_batch.view_projection,
-        inv_view_projection = shape_batch.inv_view_projection,
-        screen_size         = shape_batch.screen_size,
-        pixel_size          = shape_batch.pixel_size,
     }
     push_buffer(
         shape_batch.rid,

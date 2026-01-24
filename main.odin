@@ -159,13 +159,7 @@ main :: proc() {
 
         // Set up view projection for shape rendering
         view_proj := mat4_ortho_fixed_height(camera.zoom, camera.aspect_ratio)
-        screen_size := Vec2{f32(window.get_size(window.data).x), f32(window.get_size(window.data).y)}
-        set_shape_view_projection(view_proj, screen_size)
-        
-        // Enable pixel art mode: set pixel_size > 0 for pixelated look
-        // pixel_size is in world units per "pixel" (e.g., 4.0 = 4x4 world unit pixels)
-        // Set to 0 for smooth anti-aliased rendering (default)
-        set_pixel_size(0)  // Change to e.g. 4.0 for pixel art mode
+        set_shape_view_projection(view_proj)
 
         // ========================================
         // EXAMPLE: Drawing with the new texture system
