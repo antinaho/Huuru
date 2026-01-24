@@ -8,8 +8,6 @@ using namespace metal;
 
 struct Shape_Uniforms {
     float4x4 view_projection;
-    float2 screen_size;      // screen dimensions in pixels
-    float pixel_size;        // virtual pixel size (1.0 = no pixelation, 4.0 = 4x4 pixel blocks)
 };
 
 struct Shape_Vertex {
@@ -35,11 +33,10 @@ struct Shape_Instance {
 
 struct Shape_Out {
     float4 position [[position]];
-    float2 uv;           // normalized UV [0,1] for SDF calculations
-    float2 tex_uv;       // remapped UV for texture sampling
+    float2 uv;              // normalized UV [0,1] for SDF calculations
+    float2 tex_uv;          // remapped UV for texture sampling
     float2 uv_min;       // raw uv_min for shapes that need it (e.g., line)
-    float2 screen_size;  // screen dimensions for pixel snapping
-    float pixel_size;    // virtual pixel size
+
     float4 color;
     uint kind;
     float4 params;
@@ -78,7 +75,7 @@ vertex Shape_Out shape_vertex(
     float2 world_pos = rotated + inst.position;
 
     out.position = uniforms.view_projection * float4(world_pos, 0.0, 1.0);
-    
+        
     // Keep normalized UV for SDF calculations
     out.uv = vert.uv;
     out.uv.y = 1.0 - out.uv.y;
@@ -88,13 +85,12 @@ vertex Shape_Out shape_vertex(
     out.tex_uv = mix(inst.uv_min, inst.uv_max, vert.uv);
     out.tex_uv.y = 1.0 - out.tex_uv.y;  // flip Y for texture coordinates
     
-    out.color         = float4(inst.color) / 255.0;
-    out.kind          = inst.kind;
-    out.params        = inst.params;
-    out.texture_index = inst.texture_index;
     out.uv_min        = inst.uv_min;
-    out.screen_size   = uniforms.screen_size;
-    out.pixel_size    = uniforms.pixel_size;
+
+    out.color           = float4(inst.color) / 255.0;
+    out.kind            = inst.kind;
+    out.params          = inst.params;
+    out.texture_index   = inst.texture_index;
 
     return out;
 }
@@ -147,57 +143,6 @@ float2 uv_klems(float2 uv, int2 texture_size) {
     return (fl + fr - 0.5) / tex_size;
 }
 
-
-
-// Pixel-snap UV coordinates for SDF calculations (Klems-style)
-// Snaps to virtual pixel grid while maintaining smooth transitions at pixel boundaries
-// uv: original UV coordinates [0,1]
-// frag_coord: fragment screen position
-// screen_size: screen dimensions in pixels
-// pixel_size: virtual pixel size (1.0 = native, 2.0 = 2x2 blocks, etc.)
-// Returns snapped UV coordinates
-float2 sdf_pixel_snap(float2 uv, float2 frag_coord, float2 screen_size, float pixel_size) {
-    if (pixel_size <= 1.0) {
-        return uv;  // No snapping needed
-    }
-    
-    // Calculate position in virtual pixel grid
-    float2 virtual_pixels = frag_coord / pixel_size;
-    float2 fl = floor(virtual_pixels);
-    float2 fr = fract(virtual_pixels);
-    
-    // Klems-style smoothstep at pixel boundaries
-    float2 aa = fwidth(virtual_pixels) * 0.75;
-    fr = smoothstep(float2(0.5) - aa, float2(0.5) + aa, fr);
-    
-    // Calculate snapped screen position and convert to UV offset
-    float2 snapped_screen = (fl + fr) * pixel_size;
-    float2 screen_offset = snapped_screen - frag_coord;
-    
-    // Convert screen offset to UV offset (need to account for shape's screen coverage)
-    // This is approximate - we use screen_size as reference
-    float2 uv_offset = screen_offset / screen_size;
-    
-    return uv + uv_offset;
-}
-
-// Quantize SDF distance for hard pixel edges
-// dist: SDF distance
-// pixel_size: virtual pixel size  
-// Returns quantized alpha (0 or 1 style, but with slight AA at virtual pixel boundaries)
-float sdf_alpha_pixelated(float dist, float radius, float pixel_size) {
-    if (pixel_size <= 1.0) {
-        // Normal smooth AA
-        float aa = fwidth(dist);
-        return 1.0 - smoothstep(radius - aa, radius + aa, dist);
-    }
-    
-    // Hard threshold for pixelated look
-    return dist < radius ? 1.0 : 0.0;
-}
-
-
-
 // Argument buffer structure for bindless textures
 struct TextureArray {
     array<texture2d<float>, MAX_SHAPE_TEXTURES> textures;
@@ -205,21 +150,16 @@ struct TextureArray {
 
 fragment float4 shape_fragment(
     Shape_Out                 in             [[stage_in]],
-    float4                    frag_coord     [[position]],
     constant TextureArray&    textureArray   [[buffer(3)]],
     sampler                   textureSampler [[sampler(0)]]
 ) {
     float4 color = in.color;
-    float pixel_size = in.pixel_size;
-    
-    // Apply Klems-style pixel snapping for pixelated mode
-    float2 uv = sdf_pixel_snap(in.uv, frag_coord.xy, in.screen_size, pixel_size);
-    
-    float2 centered = uv - 0.5;  // center UV at origin, range [-0.5, 0.5]
+    float2 centered = in.uv - 0.5;  // center UV at origin, range [-0.5, 0.5]
     float dist = length(centered);
+    float aa = fwidth(dist);
 
     if (in.kind == SHAPE_CIRCLE) {
-        float alpha = sdf_alpha_pixelated(dist, 0.5, pixel_size);
+        float alpha = 1.0 - smoothstep(0.5 - aa, 0.5 + aa, dist);
         color.a *= alpha;
     }
     else if (in.kind == SHAPE_DONUT) {
@@ -227,16 +167,15 @@ fragment float4 shape_fragment(
         float inner_radius = in.params.x * 0.5;
         float outer_radius = 0.5;
         
-        float alpha_outer = sdf_alpha_pixelated(dist, outer_radius, pixel_size);
-        float alpha_inner = 1.0 - sdf_alpha_pixelated(dist, inner_radius, pixel_size);
+        float alpha_outer = 1.0 - smoothstep(outer_radius - aa, outer_radius, dist);
+        float alpha_inner = smoothstep(inner_radius - aa, inner_radius, dist);
         
         color.a *= alpha_outer * alpha_inner;
     }
     else if (in.kind == SHAPE_TRIANGLE) {
         // Equilateral triangle, radius ~0.4 to fit in quad
         float d = sdf_triangle(centered, 0.4);
-        // For triangle, distance < 0 means inside
-        float alpha = sdf_alpha_pixelated(-d, 0.0, pixel_size);
+        float alpha = 1.0 - smoothstep(-aa, aa, d);
         color.a *= alpha;
     }
     else if (in.kind == SHAPE_HOLLOW_RECT) {
@@ -244,9 +183,9 @@ fragment float4 shape_fragment(
         float thickness = in.params.x * 0.5;
         float d_outer = sdf_box(centered, float2(0.5));
         float d_inner = sdf_box(centered, float2(0.5 - thickness));
-        
-        float alpha_outer = sdf_alpha_pixelated(-d_outer, 0.0, pixel_size);
-        float alpha_inner = 1.0 - sdf_alpha_pixelated(-d_inner, 0.0, pixel_size);
+
+        float alpha_outer = 1.0 - smoothstep(-aa, aa, d_outer);
+        float alpha_inner = smoothstep(-aa, aa, d_inner);
         
         color.a *= alpha_outer * alpha_inner;
     }
@@ -255,14 +194,14 @@ fragment float4 shape_fragment(
         float thickness = in.params.x * 0.4;
         float d_outer = sdf_triangle(centered, 0.4);
         float d_inner = sdf_triangle(centered, 0.4 - thickness);
-        
-        float alpha_outer = sdf_alpha_pixelated(-d_outer, 0.0, pixel_size);
-        float alpha_inner = 1.0 - sdf_alpha_pixelated(-d_inner, 0.0, pixel_size);
+
+        float alpha_outer = 1.0 - smoothstep(-aa, aa, d_outer);
+        float alpha_inner = smoothstep(-aa, aa, d_inner);
         
         color.a *= alpha_outer * alpha_inner;
     }
     else if (in.kind == SHAPE_LINE) {
-        // Line using SDF for smooth anti-aliased rendering with round caps
+        // Line using SDF for pixelated rendering with round caps
         // params.xy = normalized start point
         // params.zw = normalized end point
         // uv_min.x = thickness ratio (half_thickness / box_height)
@@ -273,11 +212,9 @@ fragment float4 shape_fragment(
         float thickness_ratio = in.uv_min.x;
         float aspect = in.uv_min.y;
         
-        // Scale to square coordinate space where y spans [-0.5, 0.5]
-        // and x spans [-0.5*aspect, 0.5*aspect]
-        // This preserves the actual distances in units of box_height
+        // Adjust centered coords for aspect ratio to get correct distances
         float2 p = centered;
-        p.x *= aspect;
+        p.x *= aspect;  // Scale x to match aspect ratio
         
         float2 a = line_start;
         a.x *= aspect;
@@ -285,10 +222,14 @@ fragment float4 shape_fragment(
         float2 b = line_end;
         b.x *= aspect;
         
-        // Calculate distance to line segment (in units of box_height)
+        // Calculate distance to line segment
         float d = sdf_line_segment(p, a, b);
         
-        float alpha = sdf_alpha_pixelated(d, thickness_ratio, pixel_size);
+        // thickness_ratio is in the normalized space, adjust for aspect
+        float radius = thickness_ratio;
+        
+        float aa_line = fwidth(d);
+        float alpha = 1.0 - smoothstep(radius - aa_line, radius + aa_line, d);
         color.a *= alpha;
     }
 
@@ -296,6 +237,8 @@ fragment float4 shape_fragment(
 
     // Sample from the bindless texture array using the instance's texture index
     float2 tex_uv = in.tex_uv;
-    float4 texColor = textureArray.textures[in.texture_index].sample(textureSampler, tex_uv);
+    texture2d<float> tex = textureArray.textures[in.texture_index];
+    float2 klem_uv = uv_klems(tex_uv, int2(tex.get_width(), tex.get_height()));
+    float4 texColor = tex.sample(textureSampler, klem_uv);
     return texColor * color;
 }
