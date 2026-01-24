@@ -37,6 +37,17 @@ Shape_Batch :: struct {
     rid:             Renderer_ID,
 }
 
+// Must match Shape_Uniforms in shapes.metal (160 bytes total)
+Shape_Uniforms :: struct #align(16) {
+    view_projection:     matrix[4,4]f32,  // offset 0, 64 bytes
+    inv_view_projection: matrix[4,4]f32,  // offset 64, 64 bytes
+    screen_size:         Vec2,            // offset 128, 8 bytes
+    pixel_size:          f32,             // offset 136, 4 bytes (world units per pixel art "pixel", 0 = smooth)
+    _pad:                f32,             // offset 140, 4 bytes (padding for alignment)
+}
+
+#assert(size_of(Shape_Uniforms) == 144)
+
 Shape_Vertex :: struct {
     position: Vec2,
     uv:       Vec2,
