@@ -160,6 +160,16 @@ shape_batcher_init :: proc(renderer_id: Renderer_ID, allocator: runtime.Allocato
     })
     defer stbi.image_free(cast([^]byte)tex_data)
     register_shape_texture(white_texture)
+
+    font_tex_data, font_tex_width, font_tex_height := load_tex(get_path_to("assets/block_font.png"))
+    font_texture := create_texture(renderer_id, Texture_Desc {
+        data   = font_tex_data,
+        width  = font_tex_width,
+        height = font_tex_height,
+        format = .RGBA8,
+    })
+    defer stbi.image_free(cast([^]byte)font_tex_data)
+    register_shape_texture(font_texture)
 }
 
 // Register a texture for use with shape drawing.
@@ -210,6 +220,10 @@ draw_shape :: proc(position: Vec2, rotation: f32, scale: Vec2, color: Color, kin
         texture_index = texture_index,
     }
     shape_batch.instance_count += 1
+}
+
+draw_character :: proc(position: Vec2, rotation: f32, size: Vec2, color: Color) {
+    draw_shape(position, rotation, size, color, .Rect, texture_index = 1)
 }
 
 draw_rect :: proc(position: Vec2, rotation: f32, size: Vec2, color: Color) {
