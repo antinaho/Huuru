@@ -434,7 +434,13 @@ flush_shapes_batch :: proc() {
     cmd_bind_vertex_buffer({
         id        = shape_batch.rid,
         buffer_id = shape_batch.uniform_buffer,
-        index     = 2,  // buffer 2 for uniforms
+        index     = 2,  // buffer 2 for uniforms (vertex shader)
+        offset    = 0,
+    })
+    cmd_bind_fragment_buffer({
+        id        = shape_batch.rid,
+        buffer_id = shape_batch.uniform_buffer,
+        index     = 2,  // buffer 2 for uniforms (fragment shader)
         offset    = 0,
     })
     

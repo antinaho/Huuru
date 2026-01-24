@@ -167,6 +167,8 @@ metal_present :: proc() {
                 metal_bind_texture(cmd.id, cmd.texture_id, cmd.slot)
             case Render_Command_Bind_Vertex_Buffer:
                 metal_bind_vertex_buffer(cmd.id, cmd.buffer_id, cmd.offset, cmd.index)
+            case Render_Command_Bind_Fragment_Buffer:
+                metal_bind_fragment_buffer(cmd.id, cmd.buffer_id, cmd.offset, cmd.index)
             case Render_Command_Draw_Indexed:
                 metal_draw_indexed(cmd.rid, cmd.vertex_id, cmd.vertex_offset, cmd.vertex_index, cmd.primitive, cmd.index_count, cmd.index_type, cmd.index_id, cmd.index_offset)
             case Render_Command_Bind_Sampler:
@@ -595,6 +597,16 @@ metal_bind_vertex_buffer :: proc(id: Renderer_ID, buffer_id: Buffer_ID, offset: 
 
     mtl_buffer := mtl_state.buffers[buffer_id].buffer
     mtl_state.render_encoder->setVertexBuffer(mtl_buffer, NS.UInteger(offset), NS.UInteger(index))
+}
+
+metal_bind_fragment_buffer :: proc(id: Renderer_ID, buffer_id: Buffer_ID, offset: uint, index: uint) {
+    if mtl_state == nil || mtl_state.skip_frame do return
+
+    assert(int(buffer_id) < MAX_BUFFERS && int(buffer_id) >= 0, "Invalid Buffer_ID")
+    assert(mtl_state.buffers[buffer_id].is_alive, "Cannot bind destroyed buffer")
+
+    mtl_buffer := mtl_state.buffers[buffer_id].buffer
+    mtl_state.render_encoder->setFragmentBuffer(mtl_buffer, NS.UInteger(offset), NS.UInteger(index))
 }
 
 metal_destroy_buffer :: proc(id: Renderer_ID, buffer: Buffer_ID) {
